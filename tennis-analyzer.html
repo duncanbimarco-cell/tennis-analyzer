@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>网球动作分析器 - Tennis Motion Analyzer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    header {
+      text-align: center;
+      padding: 20px 16px 8px;
+    }
+
+    header h1 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, #a8e063, #56ab2f);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    header p {
+      font-size: 0.85rem;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    /* 容器：视频 + Canvas 叠加 */
+    .camera-container {
+      position: relative;
+      width: 100%;
+      max-width: 720px;
+      margin: 12px auto;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 30px rgba(86, 171, 47, 0.15);
+      background: #111;
+      aspect-ratio: 4 / 3;
+    }
+
+    video, canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    video {
+      transform: scaleX(-1); /* 镜像 */
+    }
+
+    canvas {
+      transform: scaleX(-1); /* 与视频同步镜像 */
+    }
+
+    /* 控制按钮 */
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 25px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-start {
+      background: linear-gradient(135deg, #56ab2f, #3d8b24);
+      color: #fff;
+      box-shadow: 0 2px 12px rgba(86, 171, 47, 0.3);
+    }
+    .btn-start:hover { box-shadow: 0 4px 20px rgba(86, 171, 47, 0.45); transform: translateY(-1px); }
+    .btn-start:active { transform: scale(0.97); }
+
+    .btn-stop {
+      background: #2a2a2a;
+      color: #ccc;
+      border: 1px solid #444;
+    }
+    .btn-stop:hover { background: #3a3a3a; }
+
+    .btn-start:disabled, .btn-stop:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* 提示区域 */
+    .feedback-area {
+      width: 100%;
+      max-width: 720px;
+      min-height: 50px;
+      margin: 4px auto 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 1.1rem;
+      font-weight: 600;
+      transition: all 0.35s ease;
+    }
+
+    .feedback-area.normal {
+      background: rgba(86, 171, 47, 0.1);
+      border: 1px solid rgba(86, 171, 47, 0.25);
+      color: #a8e063;
+      padding: 12px 20px;
+    }
+
+    .feedback-area.warning {
+      background: rgba(255, 75, 75, 0.12);
+      border: 2px solid rgba(255, 75, 75, 0.5);
+      color: #ff6b6b;
+      padding: 14px 24px;
+      animation: pulse-warning 1.2s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulse-warning {
+      from { box-shadow: 0 0 8px rgba(255, 75, 75, 0.2); }
+      to   { box-shadow: 0 0 22px rgba(255, 75, 75, 0.55); }
+    }
+
+    /* 信息面板 */
+    .info-panel {
+      width: 100%;
+      max-width: 720px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .info-card {
+      flex: 1;
+      min-width: 100px;
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 12px 16px;
+      text-align: center;
+    }
+
+    .info-card .label {
+      font-size: 0.7rem;
+      color: #777;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .info-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .info-card .value.normal { color: #a8e063; }
+    .info-card .value.warn   { color: #ff6b6b; }
+
+    .loading-text {
+      font-size: 0.9rem;
+      color: #888;
+      padding: 8px;
+    }
+
+    /* 响应式 */
+    @media (max-width: 500px) {
+      header h1 { font-size: 1.3rem; }
+      .btn { padding: 8px 18px; font-size: 0.85rem; }
+      .info-card .value { font-size: 1.2rem; }
+      .feedback-area { font-size: 0.9rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🎾 网球动作分析器</h1>
+    <p>MediaPipe Pose · 实时骨架追踪 · 肘关节角度监测</p>
+  </header>
+
+  <!-- 摄像头 + 骨架画布 -->
+  <div class="camera-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- 控制按钮 -->
+  <div class="controls">
+    <button id="btnStart" class="btn btn-start" onclick="startAnalysis()">▶ 开始分析</button>
+    <button id="btnStop"  class="btn btn-stop"  onclick="stopAnalysis()"  disabled>⏹ 停止</button>
+  </div>
+
+  <!-- 实时提示 -->
+  <div id="feedback" class="feedback-area normal">
+    <span id="feedbackText">点击「开始分析」启动摄像头</span>
+  </div>
+
+  <!-- 数据面板 -->
+  <div class="info-panel">
+    <div class="info-card">
+      <div class="label">右肘角度</div>
+      <div id="elbowAngle" class="value normal">--°</div>
+    </div>
+    <div class="info-card">
+      <div class="label">状态</div>
+      <div id="postureStatus" class="value normal">待检测</div>
+    </div>
+    <div class="info-card">
+      <div class="label">FPS</div>
+      <div id="fpsCounter" class="value normal">--</div>
+    </div>
+  </div>
+
+  <!-- 关键点说明 -->
+  <footer style="font-size:0.7rem;color:#555;padding-bottom:20px;text-align:center;max-width:720px;line-height:1.6;">
+    🔴 右肩 · 🟠 右肘 · 🟡 右腕 &nbsp;|&nbsp;
+    肘关节角度 = 肩 → 肘 → 腕 三点的夹角 &nbsp;|&nbsp;
+    阈值：<strong style="color:#ff6b6b;">&lt; 100°</strong> 触发提醒
+  </footer>
+
+  <!-- ==================== 脚本 ==================== -->
+  <!-- MediaPipe Pose (legacy solution API, 最稳定的 CDN 方式) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js"
+          crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js"
+          crossorigin="anonymous"></script>
+
+  <script>
+  (function () {
+    // ==================== DOM 引用 ====================
+    const videoEl    = document.getElementById('video');
+    const canvasEl   = document.getElementById('canvas');
+    const ctx        = canvasEl.getContext('2d');
+
+    const btnStart   = document.getElementById('btnStart');
+    const btnStop    = document.getElementById('btnStop');
+    const feedbackEl = document.getElementById('feedback');
+    const feedbackText = document.getElementById('feedbackText');
+
+    const elAngle    = document.getElementById('elbowAngle');
+    const elStatus   = document.getElementById('postureStatus');
+    const elFPS      = document.getElementById('fpsCounter');
+
+    // ==================== 状态 ====================
+    let poseInstance  = null;
+    let cameraInstance = null;
+    let isRunning     = false;
+    let lastResults   = null;       // 最新姿态结果
+    let animFrameId   = null;
+
+    // FPS 计算
+    let fpsFrames   = 0;
+    let fpsLastTime = performance.now();
+    let currentFPS  = 0;
+
+    // ==================== MediaPipe Pose 关键点连线 ====================
+    // 来自 mediapipe pose_landmarks 标准定义
+    const POSE_CONNECTIONS = [
+      // 躯干
+      [11, 12], [11, 23], [12, 24], [23, 24],
+      // 右臂
+      [12, 14], [14, 16],
+      // 左臂
+      [11, 13], [13, 15],
+      // 右腿
+      [24, 26], [26, 28],
+      // 左腿
+      [23, 25], [25, 27],
+      // 头部
+      [0, 1],  [1, 2],  [2, 3],  [3, 7],
+      [0, 4],  [4, 5],  [5, 6],  [6, 8],
+      // 面部中线
+      [9, 10],
+      // 躯干到头部
+      [11, 11], // 无，占位
+    ];
+
+    /** 连线定义（用中文注释标注） */
+    const CONNECTIONS = [
+      // 躯干
+      [11, 12], [11, 23], [12, 24], [23, 24],
+      // 右臂 ← 重点：肩(12)→肘(14)→腕(16)
+      [12, 14], [14, 16],
+      // 左臂
+      [11, 13], [13, 15],
+      // 右腿
+      [24, 26], [26, 28],
+      // 左腿
+      [23, 25], [25, 27],
+      // 面部 + 头部
+      [0, 1], [0, 4], [1, 2], [2, 3], [3, 7],
+      [4, 5], [5, 6], [6, 8],
+      [9, 10],
+    ];
+
+    // 关键点颜色：普通关节点 / 右臂专用色
+    function getLandmarkColor(index) {
+      if (index === 12) return '#ff4b4b'; // 右肩 红
+      if (index === 14) return '#ff8c00'; // 右肘 橙
+      if (index === 16) return '#ffd700'; // 右腕 金
+      return '#56ab2f';                    // 其余 绿
+    }
+
+    // ==================== 角度计算 ====================
+    /**
+     * 计算以 b 为顶点的夹角 ∠abc（单位：度）
+     * a, b, c 均为 { x, y, z } 归一化坐标
+     */
+    function calculateAngle(a, b, c) {
+      if (!a || !b || !c) return null;
+
+      // 向量 BA 和 BC
+      const ba = { x: a.x - b.x, y: a.y - b.y, z: (a.z || 0) - (b.z || 0) };
+      const bc = { x: c.x - b.x, y: c.y - b.y, z: (c.z || 0) - (b.z || 0) };
+
+      const dot   = ba.x * bc.x + ba.y * bc.y + ba.z * bc.z;
+      const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y + ba.z * ba.z);
+      const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y + bc.z * bc.z);
+
+      if (magBA === 0 || magBC === 0) return null;
+
+      const cosTheta = Math.max(-1, Math.min(1, dot / (magBA * magBC)));
+      const angleRad = Math.acos(cosTheta);
+      const angleDeg = angleRad * (180 / Math.PI);
+
+      return Math.round(angleDeg * 10) / 10; // 保留一位小数
+    }
+
+    // ==================== Canvas 绘制 ====================
+    function drawSkeleton(landmarks) {
+      const w = canvasEl.width;
+      const h = canvasEl.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (!landmarks || landmarks.length === 0) return;
+
+      // --- 画连线 ---
+      ctx.lineWidth = 2.5;
+      for (const [i, j] of CONNECTIONS) {
+        const a = landmarks[i];
+        const b = landmarks[j];
+        if (!a || !b) continue;
+        // 只绘制可见度较高的连线
+        if (a.visibility < 0.5 || b.visibility < 0.5) continue;
+
+        // 右臂连线高亮
+        if ((i === 12 && j === 14) || (i === 14 && j === 16)) {
+          ctx.strokeStyle = 'rgba(255, 140, 0, 0.9)';
+          ctx.lineWidth = 3.5;
+        } else if ((i === 11 && j === 13) || (i === 13 && j === 15)) {
+          ctx.strokeStyle = 'rgba(86, 171, 47, 0.7)';
+          ctx.lineWidth = 2.5;
+        } else {
+          ctx.strokeStyle = 'rgba(86, 171, 47, 0.55)';
+          ctx.lineWidth = 2;
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(a.x * w, a.y * h);
+        ctx.lineTo(b.x * w, b.y * h);
+        ctx.stroke();
+      }
+
+      // --- 画关键点 ---
+      for (let i = 0; i < landmarks.length; i++) {
+        const lm = landmarks[i];
+        if (!lm || lm.visibility < 0.5) continue;
+
+        const cx = lm.x * w;
+        const cy = lm.y * h;
+
+        // 右臂关节点更大
+        const isRightArm = (i === 12 || i === 14 || i === 16);
+        const radius = isRightArm ? 6 : 4;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+        ctx.fillStyle = getLandmarkColor(i);
+        ctx.fill();
+
+        // 外圈发光
+        if (isRightArm) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius + 2.5, 0, 2 * Math.PI);
+          ctx.strokeStyle = getLandmarkColor(i);
+          ctx.lineWidth = 1.5;
+          ctx.globalAlpha = 0.5;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // --- 右肘角度标注 ---
+      const shoulder = landmarks[12];
+      const elbow    = landmarks[14];
+      const wrist    = landmarks[16];
+
+      if (shoulder && elbow && wrist &&
+          shoulder.visibility > 0.5 &&
+          elbow.visibility > 0.5 &&
+          wrist.visibility > 0.5) {
+
+        const angle = calculateAngle(shoulder, elbow, wrist);
+        if (angle !== null) {
+          // 在肘部标出角度
+          const ex = elbow.x * w;
+          const ey = elbow.y * h;
+          ctx.font = 'bold 15px "Segoe UI","PingFang SC",sans-serif';
+          ctx.fillStyle = angle < 100 ? '#ff6b6b' : '#a8e063';
+          ctx.shadowColor = 'rgba(0,0,0,0.7)';
+          ctx.shadowBlur = 4;
+          ctx.fillText(`${angle}°`, ex + 12, ey - 12);
+          ctx.shadowBlur = 0;
+        }
+      }
+    }
+
+    // ==================== Pose 回调：每帧触发 ====================
+    function onPoseResults(results) {
+      lastResults = results;
+      // 绘制由 requestAnimationFrame 循环统一驱动
+    }
+
+    // ==================== 主渲染循环 ====================
+    function renderLoop() {
+      if (!isRunning) return;
+
+      // FPS
+      fpsFrames++;
+      const now = performance.now();
+      if (now - fpsLastTime >= 1000) {
+        currentFPS = fpsFrames;
+        fpsFrames = 0;
+        fpsLastTime = now;
+      }
+
+      // 绘制骨架
+      if (lastResults && lastResults.poseLandmarks) {
+        drawSkeleton(lastResults.poseLandmarks);
+      }
+
+      // 计算右肘角度 & 判断姿态
+      let elbowAngle = null;
+      let postureMsg = '未检测到';
+
+      if (lastResults && lastResults.poseLandmarks) {
+        const lm = lastResults.poseLandmarks;
+        const shoulder = lm[12]; // 右肩
+        const elbow    = lm[14]; // 右肘
+        const wrist    = lm[16]; // 右腕
+
+        if (shoulder && elbow && wrist &&
+            shoulder.visibility > 0.5 &&
+            elbow.visibility > 0.5 &&
+            wrist.visibility > 0.5) {
+
+          elbowAngle = calculateAngle(shoulder, elbow, wrist);
+
+          if (elbowAngle !== null) {
+            if (elbowAngle < 100) {
+              postureMsg = '⚠ 肘部弯曲';
+            } else {
+              postureMsg = '✓ 姿势良好';
+            }
+          } else {
+            postureMsg = '计算中…';
+          }
+        } else {
+          postureMsg = '右臂未完整可见';
+        }
+      } else {
+        postureMsg = '未检测到人体';
+      }
+
+      // 更新 UI
+      elAngle.textContent  = elbowAngle !== null ? `${elbowAngle}°` : '--°';
+      elAngle.className    = (elbowAngle !== null && elbowAngle < 100) ? 'value warn' : 'value normal';
+      elStatus.textContent = postureMsg;
+      elStatus.className   = postureMsg.includes('⚠') ? 'value warn' : 'value normal';
+      elFPS.textContent    = currentFPS;
+
+      // 反馈提示
+      if (elbowAngle !== null && elbowAngle < 100) {
+        feedbackText.textContent = '⚠️ 击球时请锁死并延展手肘 —— 肘关节角度 < 100°，击球效率降低且易受伤';
+        feedbackEl.className = 'feedback-area warning';
+      } else {
+        feedbackText.textContent = elbowAngle !== null
+          ? '✅ 手肘延展良好，继续保持'
+          : '请站远一些，确保上半身完整入镜';
+        feedbackEl.className = 'feedback-area normal';
+      }
+
+      animFrameId = requestAnimationFrame(renderLoop);
+    }
+
+    // ==================== 初始化 MediaPipe Pose ====================
+    async function initPose() {
+      if (poseInstance) return poseInstance;
+
+      const Pose = window.Pose;
+      if (!Pose) {
+        throw new Error('MediaPipe Pose 库加载失败，请检查网络连接');
+      }
+
+      poseInstance = new Pose({
+        locateFile: (file) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`,
+      });
+
+      poseInstance.setOptions({
+        modelComplexity: 1,          // 0=轻量, 1=完整, 2=重型
+        smoothLandmarks: true,       // 平滑关键点，减少抖动
+        enableSegmentation: false,   // 不需要人像分割
+        smoothSegmentation: true,
+        minDetectionConfidence: 0.5, // 检测置信度阈值
+        minTrackingConfidence: 0.5,  // 追踪置信度阈值
+      });
+
+      poseInstance.onResults(onPoseResults);
+
+      await poseInstance.initialize();
+      console.log('✅ MediaPipe Pose 初始化完成');
+      return poseInstance;
+    }
+
+    // ==================== 启动摄像头 + 分析 ====================
+    async function startAnalysis() {
+      try {
+        btnStart.disabled = true;
+        feedbackText.textContent = '正在初始化…';
+        feedbackEl.className = 'feedback-area normal';
+
+        // 1. 初始化 Pose
+        await initPose();
+
+        // 2. 获取摄像头流
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: 'user',         // 前置摄像头
+            frameRate: { ideal: 30 },
+          },
+        });
+
+        videoEl.srcObject = stream;
+        await videoEl.play();
+
+        // 等待视频元数据加载完成
+        await new Promise((resolve) => {
+          if (videoEl.videoWidth > 0) resolve();
+          else videoEl.addEventListener('loadedmetadata', resolve, { once: true });
+        });
+
+        // 设置 Canvas 尺寸匹配视频
+        canvasEl.width  = videoEl.videoWidth;
+        canvasEl.height = videoEl.videoHeight;
+
+        // 3. 启动 Camera 帧循环（MediaPipe 工具）
+        const Camera = window.Camera;
+        cameraInstance = new Camera(videoEl, {
+          onFrame: async () => {
+            if (poseInstance) {
+              await poseInstance.send({ image: videoEl });
+            }
+          },
+          width: 640,
+          height: 480,
+        });
+        await cameraInstance.start();
+
+        // 4. 启动 UI 渲染循环
+        isRunning = true;
+        fpsFrames = 0;
+        fpsLastTime = performance.now();
+        renderLoop();
+
+        // 5. 更新按钮状态
+        btnStart.disabled = true;
+        btnStop.disabled  = false;
+        feedbackText.textContent = '✅ 分析中 · 请做出正手击球动作';
+        feedbackEl.className = 'feedback-area normal';
+
+        console.log('🎾 网球动作分析器已就绪');
+      } catch (err) {
+        console.error('启动失败:', err);
+        feedbackText.textContent = `❌ 启动失败: ${err.message}`;
+        feedbackEl.className = 'feedback-area warning';
+        btnStart.disabled = false;
+      }
+    }
+
+    // ==================== 停止分析 ====================
+    function stopAnalysis() {
+      isRunning = false;
+
+      // 停止渲染循环
+      if (animFrameId) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
+
+      // 停止 Camera 帧循环
+      if (cameraInstance) {
+        cameraInstance.stop();
+        cameraInstance = null;
+      }
+
+      // 停止视频流
+      if (videoEl.srcObject) {
+        videoEl.srcObject.getTracks().forEach((track) => track.stop());
+        videoEl.srcObject = null;
+      }
+
+      // 清空画布
+      ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+      // 重置 UI
+      lastResults = null;
+      elAngle.textContent  = '--°';
+      elAngle.className    = 'value normal';
+      elStatus.textContent = '已停止';
+      elStatus.className   = 'value normal';
+      elFPS.textContent    = '--';
+      feedbackText.textContent = '点击「开始分析」重新启动';
+      feedbackEl.className = 'feedback-area normal';
+
+      btnStart.disabled = false;
+      btnStop.disabled  = true;
+
+      console.log('⏹ 已停止分析');
+    }
+
+    // ==================== 挂载到 window ====================
+    window.startAnalysis = startAnalysis;
+    window.stopAnalysis  = stopAnalysis;
+
+    console.log('🎾 Tennis Analyzer 脚本已加载');
+    console.log('   MediaPipe Pose 版本: 0.5');
+    console.log('   右肘阈值: < 100° 触发提醒');
+  })();
+  </script>
+</body>
+</html>
