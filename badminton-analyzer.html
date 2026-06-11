@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🏸 羽毛球AI动作教练</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#0a0a12;color:#d8d8e0;display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow-x:hidden;}
+
+.status-bar{width:100%;max-width:720px;display:flex;align-items:center;justify-content:space-between;padding:16px 20px;}
+.status-bar h1{font-size:1.3rem;background:linear-gradient(135deg,#f97316,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.status-bar .modes{display:flex;gap:8px;}
+.mode-tag{font-size:0.65rem;padding:4px 10px;border-radius:12px;background:#1a1a24;color:#666;border:1px solid #2a2a36;}
+.mode-tag.on{background:rgba(249,115,22,0.15);color:#f97316;border-color:#ea580c;}
+
+.camera-wrap{position:relative;width:100%;max-width:720px;border-radius:16px;overflow:hidden;background:#111;box-shadow:0 4px 30px rgba(249,115,22,0.12);aspect-ratio:4/3;}
+.camera-wrap video,.camera-wrap canvas{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;}
+.camera-wrap video{transform:scaleX(-1);}
+.camera-wrap canvas{transform:scaleX(-1);z-index:2;}
+
+.rec-indicator{position:absolute;top:14px;left:14px;z-index:10;display:none;align-items:center;gap:8px;pointer-events:none;}
+.rec-indicator.on{display:flex;}
+.rec-dot{width:16px;height:16px;border-radius:50%;background:#ff3b3b;box-shadow:0 0 12px #ff3b3b;animation:blink 0.8s ease-in-out infinite;}
+@keyframes blink{50%{opacity:0.3;}}
+.rec-timer{font-size:0.85rem;font-weight:700;color:#ff3b3b;font-variant-numeric:tabular-nums;}
+.hit-badge{position:absolute;top:14px;right:14px;z-index:10;display:none;background:rgba(0,0,0,0.7);border-radius:20px;padding:6px 14px;font-size:0.85rem;font-weight:700;color:#f97316;}
+.hit-badge.on{display:block;}
+.track-badge{position:absolute;bottom:14px;left:14px;z-index:10;display:none;background:rgba(0,0,0,0.6);border-radius:12px;padding:4px 10px;font-size:0.7rem;color:#888;}
+.track-badge.on{display:block;}
+
+/* 击球瞬间闪光 */
+.hit-flash{position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;pointer-events:none;background:radial-gradient(circle,rgba(249,115,22,0.3) 0%,transparent 70%);opacity:0;transition:opacity 0.1s;}
+.hit-flash.pop{opacity:1;transition:opacity 0s;}
+
+.controls{display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;justify-content:center;}
+.btn{padding:10px 22px;border:none;border-radius:25px;font-size:0.9rem;font-weight:600;cursor:pointer;transition:all 0.2s;letter-spacing:0.5px;}
+.btn:disabled{opacity:0.4;cursor:not-allowed;pointer-events:none;}
+.btn-cam{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;box-shadow:0 2px 12px rgba(249,115,22,0.3);}
+.btn-rec{background:linear-gradient(135deg,#ff3b3b,#c0392b);color:#fff;box-shadow:0 2px 12px rgba(255,59,59,0.3);}
+.btn-track{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;box-shadow:0 2px 12px rgba(99,102,241,0.3);}
+.btn-reset{background:#2a2a36;color:#ccc;border:1px solid #3a3a48;}
+.btn-export{background:#1a1a3c;color:#818cf8;border:1px solid #2a2a5c;}
+.btn:hover{transform:translateY(-1px);}.btn:active{transform:scale(0.97);}
+
+.live-bar{width:100%;max-width:720px;display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;}
+.live-card{flex:1;min-width:55px;background:#14141e;border:1px solid #2a2a36;border-radius:10px;padding:8px 10px;text-align:center;}
+.live-card .lbl{font-size:0.6rem;color:#777;text-transform:uppercase;letter-spacing:1px;}
+.live-card .val{font-size:1.1rem;font-weight:700;margin-top:2px;}
+.val.good{color:#34d399;}.val.bad{color:#f87171;}.val.neut{color:#888;}.val.gold{color:#fbbf24;}.val.blue{color:#6366f1;}.val.orange{color:#f97316;}
+
+/* 报告 */
+.result-panel{width:100%;max-width:720px;display:none;background:#111118;border:1px solid #2a2a36;border-radius:16px;padding:20px;margin:8px 0 20px;}
+.result-panel.show{display:block;}
+.result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.result-header h2{font-size:1.1rem;}
+.score-badge{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:800;}
+.score-badge.great{background:rgba(52,211,153,0.2);color:#34d399;border:2px solid #10b981;}
+.score-badge.ok{background:rgba(251,191,36,0.2);color:#fbbf24;border:2px solid #f59e0b;}
+.score-badge.poor{background:rgba(248,113,113,0.2);color:#f87171;border:2px solid #ef4444;}
+
+.metrics-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.metric{flex:1;min-width:80px;background:#181824;border-radius:10px;padding:12px;text-align:center;}
+.metric .m-lbl{font-size:0.6rem;color:#777;text-transform:uppercase;letter-spacing:1px;}
+.metric .m-val{font-size:1.1rem;font-weight:700;margin-top:4px;}
+.metric .m-sub{font-size:0.65rem;color:#666;margin-top:2px;}
+
+/* 击球片段 */
+.clips-section{margin-bottom:14px;}
+.clips-section h3{font-size:0.9rem;margin-bottom:8px;color:#ccc;}
+.clips-gallery{display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;}
+.clip-card{flex-shrink:0;width:150px;background:#181824;border-radius:10px;overflow:hidden;border:1px solid #2a2a36;}
+.clip-card img{width:100%;height:100px;object-fit:cover;display:block;}
+.clip-card .cl-label{padding:6px 8px;font-size:0.65rem;color:#888;text-align:center;}
+.clip-card.best{border-color:#f97316;box-shadow:0 0 10px rgba(249,115,22,0.3);}
+.clip-card.best .cl-label{color:#f97316;}
+.clip-card.worst{border-color:#ef4444;box-shadow:0 0 10px rgba(239,68,68,0.3);}
+.clip-card.worst .cl-label{color:#f87171;}
+
+/* 球场轨迹图 */
+.court-diagram{width:100%;background:#181824;border-radius:12px;padding:14px;margin-bottom:14px;}
+.court-diagram h3{font-size:0.85rem;color:#ccc;margin-bottom:10px;}
+.court-diagram canvas{width:100%;height:180px;display:block;}
+
+.chart-wrap{width:100%;background:#181824;border-radius:12px;padding:10px;margin-bottom:14px;}
+.chart-wrap canvas{width:100%;height:200px;display:block;}
+
+.verdict-box{background:#181824;border-radius:12px;padding:16px;margin-bottom:10px;line-height:1.7;}
+.verdict-box h3{font-size:0.95rem;margin-bottom:6px;}
+.verdict-box ul{padding-left:18px;font-size:0.85rem;color:#bbb;}
+.verdict-box ul li{margin-bottom:4px;}
+.verdict-box ul li.good{color:#34d399;}
+.verdict-box ul li.bad{color:#f87171;}
+
+.drills-box{background:#181824;border-radius:12px;padding:16px;line-height:1.7;}
+.drills-box h3{font-size:0.95rem;margin-bottom:10px;}
+.drill-item{background:#111118;border-radius:10px;padding:12px 14px;margin-bottom:8px;border-left:3px solid #f97316;}
+.drill-item h4{font-size:0.85rem;color:#f97316;margin-bottom:4px;}
+.drill-item p{font-size:0.78rem;color:#999;}
+
+footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bottom:20px;line-height:1.6;}
+
+@media(max-width:500px){
+  .status-bar h1{font-size:1.1rem;}.btn{padding:8px 16px;font-size:0.8rem;}
+  .live-card .val{font-size:0.9rem;}.metric .m-val{font-size:0.95rem;}
+  .chart-wrap canvas{height:150px;}.clip-card{width:120px;}.clip-card img{height:80px;}
+  .court-diagram canvas{height:140px;}
+}
+</style>
+</head>
+<body>
+
+<div class="status-bar">
+  <h1>🏸 羽毛球AI动作教练</h1>
+  <div class="modes">
+    <span class="mode-tag on" id="modeLive">📡 实时</span>
+    <span class="mode-tag" id="modeClip">🎬 片段</span>
+  </div>
+</div>
+
+<div class="camera-wrap" id="cameraWrap">
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+  <div class="hit-flash" id="hitFlash"></div>
+  <div class="rec-indicator" id="recInd"><div class="rec-dot"></div><span class="rec-timer" id="recTimer">00:00</span></div>
+  <div class="hit-badge" id="hitBadge">🏸 击球 <span id="hitCountLive">0</span></div>
+  <div class="track-badge" id="trackBadge">👣 <span id="distLive">0m</span></div>
+</div>
+
+<div class="controls">
+  <button id="btnCam" class="btn btn-cam" onclick="toggleCamera()">📷 打开摄像头</button>
+  <button id="btnRec" class="btn btn-rec" onclick="toggleRecording()" disabled>🔴 开始录制</button>
+  <button id="btnTrack" class="btn btn-track" onclick="toggleTracking()" disabled>🎥 追踪模式</button>
+  <button id="btnReset" class="btn btn-reset" onclick="resetAll()">↺ 重置</button>
+  <button id="btnExport" class="btn btn-export" onclick="exportData()" disabled style="display:none;">📥 导出数据</button>
+</div>
+
+<div class="live-bar">
+  <div class="live-card"><div class="lbl">右肘角度</div><div class="val neut" id="rElbow">--°</div></div>
+  <div class="live-card"><div class="lbl">右腕速度</div><div class="val neut" id="rWristSpd">--</div></div>
+  <div class="live-card"><div class="lbl">左肘角度</div><div class="val neut" id="lElbow">--°</div></div>
+  <div class="live-card"><div class="lbl">扭转角</div><div class="val neut" id="torsion">--°</div></div>
+  <div class="live-card"><div class="lbl">右膝角度</div><div class="val neut" id="rKnee">--°</div></div>
+  <div class="live-card"><div class="lbl">击球次数</div><div class="val gold" id="hitCntBar">0</div></div>
+  <div class="live-card"><div class="lbl">跑动距离</div><div class="val blue" id="distBar">0m</div></div>
+  <div class="live-card"><div class="lbl">状态</div><div class="val neut" id="statusLabel">待启动</div></div>
+</div>
+
+<!-- ===== 报告面板 ===== -->
+<div class="result-panel" id="resultPanel">
+  <div class="result-header">
+    <h2>📊 动作分析报告</h2>
+    <div class="score-badge" id="scoreBadge">--</div>
+  </div>
+
+  <div class="metrics-row">
+    <div class="metric"><div class="m-lbl">击球次数</div><div class="m-val" id="hitTotal" style="color:#f97316;">--</div><div class="m-sub">检测到的击球</div></div>
+    <div class="metric"><div class="m-lbl">最低肘角度</div><div class="m-val" id="minElbow">--</div><div class="m-sub">持拍手臂</div></div>
+    <div class="metric"><div class="m-lbl">平均腕速</div><div class="m-val" id="avgWristSpd">--</div><div class="m-sub">击球瞬间</div></div>
+    <div class="metric"><div class="m-lbl">最大扭转</div><div class="m-val" id="maxTorsion">--</div><div class="m-sub">肩髋分离角</div></div>
+    <div class="metric"><div class="m-lbl">总跑动</div><div class="m-val" id="distTotal" style="color:#6366f1;">--</div><div class="m-sub">累计距离</div></div>
+    <div class="metric"><div class="m-lbl">稳定性</div><div class="m-val" id="stability">--</div><div class="m-sub">肘角标准差</div></div>
+  </div>
+
+  <div class="metrics-row">
+    <div class="metric"><div class="m-lbl">动作类型</div><div class="m-val" id="shotTypes" style="color:#fbbf24;font-size:0.85rem;">--</div><div class="m-sub">自动识别</div></div>
+    <div class="metric"><div class="m-lbl">非持拍手</div><div class="m-val" id="nonRacketScore">--</div><div class="m-sub">辅助平衡</div></div>
+    <div class="metric"><div class="m-lbl">屈膝幅度</div><div class="m-val" id="kneeBend">--</div><div class="m-sub">下肢发力</div></div>
+    <div class="metric"><div class="m-lbl">身体倾斜</div><div class="m-val" id="bodyTilt">--</div><div class="m-sub">后仰/前倾</div></div>
+  </div>
+
+  <!-- 击球关键帧截图 -->
+  <div class="clips-section" id="clipsSection" style="display:none;">
+    <h3>📸 击球关键帧截图</h3>
+    <div class="clips-gallery" id="clipsGallery"></div>
+  </div>
+
+  <!-- 球场跑动轨迹 -->
+  <div class="court-diagram">
+    <h3>📍 跑动轨迹图（俯视 — 羽毛球场）</h3>
+    <canvas id="courtCanvas"></canvas>
+  </div>
+
+  <!-- 图表 -->
+  <div class="chart-wrap">
+    <canvas id="chartCanvas"></canvas>
+  </div>
+
+  <div class="verdict-box" id="verdictBox">
+    <h3>🔍 诊断与建议</h3>
+    <ul id="verdictList"></ul>
+  </div>
+
+  <div class="drills-box" id="drillsBox">
+    <h3>🎯 推荐练习动作</h3>
+    <div id="drillsList"></div>
+  </div>
+</div>
+
+<footer>
+🔴右肩 · 🟠右肘 · 🟡右腕 | 🔵左肩 · 🟣左肘 · ⚪左腕 | 🟢右膝 · 🔵左膝
+<br>持拍手侧 = 暖色 | 非持拍手侧 = 冷色 | 手腕合速度检测击球 | 环形缓冲3s+3s片段
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+const videoEl=document.getElementById('video'),canvasEl=document.getElementById('canvas'),ctx=canvasEl.getContext('2d');
+const btnCam=document.getElementById('btnCam'),btnRec=document.getElementById('btnRec'),btnTrack=document.getElementById('btnTrack'),btnReset=document.getElementById('btnReset'),btnExport=document.getElementById('btnExport');
+const resultPanel=document.getElementById('resultPanel'),recInd=document.getElementById('recInd'),recTimer=document.getElementById('recTimer');
+const hitBadge=document.getElementById('hitBadge'),hitCountLive=document.getElementById('hitCountLive');
+const trackBadge=document.getElementById('trackBadge'),distLive=document.getElementById('distLive');
+const hitFlash=document.getElementById('hitFlash');
+
+const STATE={IDLE:'idle',READY:'ready',RECORDING:'recording',RESULT:'result'};
+let state=STATE.IDLE,poseInstance=null,cameraInstance=null,animFrameId=null,lastResults=null,isRunning=false;
+let fpsFrames=0,fpsLastTime=performance.now(),currentFPS=0;
+let recording=false,recordedFrames=[],recStartTime=0,recTimerInterval=null;
+let hitCount=0,hits=[],screenshots=[];
+
+// 环形缓冲区 — 始终保留最近 BUFFER_SIZE 帧
+const BUFFER_SIZE=90; // ~3秒 @30fps
+let ringBuffer=[],ringBufIdx=0,ringBufFull=false;
+
+// 击球检测状态
+let wristHistory=[],lastHitTime=0,hitInProgress=false,hitPeakSpeed=0,hitPeakIdx=0;
+let hitLockCountdown=0; // 击球后继续录制帧数
+
+// 跑动追踪
+let hipTrack=[],totalDistPx=0,totalDistM=0;
+let startHipPos=null,maxSpanPx=0,shoulderWidthRef=0;
+let trackingMode=false,trackSmooth={x:0.5,y:0.5};
+
+// 当前片段数据
+let currentClipFrames=[];
+
+// ============ MediaPipe Pose 连接线 ============
+const CONNECTIONS=[
+  [11,12],[11,23],[12,24],[23,24],           // 躯干
+  [12,14],[14,16],                              // 右臂
+  [11,13],[13,15],                              // 左臂
+  [24,26],[26,28],                              // 右腿
+  [23,25],[25,27],                              // 左腿
+  [0,1],[0,4],[1,2],[2,3],[3,7],              // 面部
+  [4,5],[5,6],[6,8],                          // 面部
+  [9,10]                                       // 嘴
+];
+
+// 颜色映射：持拍手(右)暖色系，非持拍手(左)冷色系
+function lmColor(i){
+  if(i===12)return'#ef4444';      // 右肩 红
+  if(i===14)return'#f97316';      // 右肘 橙
+  if(i===16)return'#fbbf24';      // 右腕 金
+  if(i===11)return'#6366f1';      // 左肩 靛蓝
+  if(i===13)return'#8b5cf6';      // 左肘 紫
+  if(i===15)return'#a5b4fc';      // 左腕 浅蓝紫
+  if(i===26)return'#34d399';      // 右膝 绿
+  if(i===25)return'#06b6d4';      // 左膝 青
+  return'#6b7280';                // 其他 灰
+}
+
+// ============ 角度计算 ============
+function calcAngle(a,b,c){
+  if(!a||!b||!c)return null;
+  const ba={x:a.x-b.x,y:a.y-b.y,z:(a.z||0)-(b.z||0)},bc={x:c.x-b.x,y:c.y-b.y,z:(c.z||0)-(b.z||0)};
+  const dot=ba.x*bc.x+ba.y*bc.y+ba.z*bc.z,ma=Math.sqrt(ba.x**2+ba.y**2+ba.z**2),mc=Math.sqrt(bc.x**2+bc.y**2+bc.z**2);
+  if(ma===0||mc===0)return null;
+  return Math.round(Math.acos(Math.max(-1,Math.min(1,dot/(ma*mc))))*(180/Math.PI)*10)/10;
+}
+
+// 躯干扭转角：双肩中点 vs 双髋中点 在水平面上的夹角
+function calcTorsionAngle(lm){
+  const ls=lm[11],rs=lm[12],lh=lm[23],rh=lm[24];
+  if(!ls||!rs||!lh||!rh||ls.visibility<0.5||rs.visibility<0.5||lh.visibility<0.5||rh.visibility<0.5)return null;
+  const shMidX=rs.x-ls.x,shMidY=rs.y-ls.y;
+  const hipMidX=rh.x-lh.x,hipMidY=rh.y-lh.y;
+  const dot=shMidX*hipMidX+shMidY*hipMidY;
+  const ma=Math.sqrt(shMidX**2+shMidY**2),mc=Math.sqrt(hipMidX**2+hipMidY**2);
+  if(ma<0.001||mc<0.001)return null;
+  return Math.round(Math.acos(Math.max(-1,Math.min(1,dot/(ma*mc))))*(180/Math.PI)*10)/10;
+}
+
+// 身体倾斜角：肩中点→髋中点 与垂直线的夹角
+function calcTiltAngle(lm){
+  const ls=lm[11],rs=lm[12],lh=lm[23],rh=lm[24];
+  if(!ls||!rs||!lh||!rh||ls.visibility<0.5||rs.visibility<0.5||lh.visibility<0.5||rh.visibility<0.5)return null;
+  const shMidX=(ls.x+rs.x)/2,shMidY=(ls.y+rs.y)/2;
+  const hipMidX=(lh.x+rh.x)/2,hipMidY=(lh.y+rh.y)/2;
+  const dx=shMidX-hipMidX,dy=hipMidY-shMidY; // dy>0 肩高于髋（正常），dy<0 肩低于髋
+  // 与垂直线夹角
+  const mag=Math.sqrt(dx**2+dy**2);
+  if(mag<0.001)return null;
+  const angle=Math.round(Math.acos(Math.max(-1,Math.min(1,Math.abs(dy)/mag)))*(180/Math.PI)*10)/10;
+  // 带方向：dx>0 前倾，dx<0 后仰
+  return {angle,forward:dx>0};
+}
+
+// ============ 像素→米 转换 ============
+function pxToMeters(px){
+  if(shoulderWidthRef<0.01)return px*0.002;
+  return px/shoulderWidthRef*0.4;
+}
+
+// ============ 跑动追踪 ============
+function updateDistance(lm){
+  const lh=lm[23],rh=lm[24];
+  if(!lh||!rh||lh.visibility<0.5||rh.visibility<0.5)return;
+  const hipX=(lh.x+rh.x)/2,hipY=(lh.y+rh.y)/2;
+
+  const ls=lm[11],rs=lm[12];
+  if(ls&&rs&&ls.visibility>0.5&&rs.visibility>0.5){
+    const sw=Math.abs(rs.x-ls.x);
+    if(sw>0.02){shoulderWidthRef=shoulderWidthRef>0?shoulderWidthRef*0.9+sw*0.1:sw;}
+  }
+
+  if(!startHipPos&&hipX>0.1&&hipX<0.9){startHipPos={x:hipX,y:hipY};}
+
+  if(hipTrack.length>0){
+    const prev=hipTrack[hipTrack.length-1];
+    const dx=hipX-prev.x,dy=hipY-prev.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<0.05){totalDistPx+=dist;}
+  }
+  hipTrack.push({x:hipX,y:hipY});
+  if(hipTrack.length>300)hipTrack.shift();
+
+  totalDistM=pxToMeters(totalDistPx);
+
+  if(startHipPos){
+    const span=Math.abs(hipX-startHipPos.x);
+    if(span>maxSpanPx)maxSpanPx=span;
+  }
+
+  distLive.textContent=totalDistM.toFixed(1)+'m';
+  document.getElementById('distBar').textContent=totalDistM.toFixed(1)+'m';
+}
+
+// ============ 追踪模式 ============
+function updateTracking(lm){
+  if(!trackingMode)return;
+  const lh=lm[23],rh=lm[24],neck=lm[1]||lm[0];
+  if(!lh||!rh||lh.visibility<0.5||rh.visibility<0.5)return;
+  const cx=(lh.x+rh.x)/2,cy=neck?neck.y:lh.y-0.1;
+  trackSmooth.x+=(cx-trackSmooth.x)*0.15;
+  trackSmooth.y+=(cy-trackSmooth.y)*0.15;
+  const zoom=1.6;
+  const ox=(trackSmooth.x-0.5)*(zoom-1)/zoom;
+  const oy=(trackSmooth.y-0.5)*(zoom-1)/zoom;
+  videoEl.style.transform=`scaleX(-1) scale(${zoom}) translate(${-ox*100}%,${-oy*100}%)`;
+  canvasEl.style.transform=`scaleX(-1) scale(${zoom}) translate(${-ox*100}%,${-oy*100}%)`;
+}
+
+function resetTracking(){
+  trackingMode=false;
+  btnTrack.textContent='🎥 追踪模式';
+  btnTrack.className='btn btn-track';
+  document.getElementById('modeLive').classList.add('on');
+  videoEl.style.transform='scaleX(-1) scale(1)';
+  canvasEl.style.transform='scaleX(-1) scale(1)';
+  trackSmooth={x:0.5,y:0.5};
+}
+
+function toggleTracking(){
+  trackingMode=!trackingMode;
+  if(trackingMode){
+    btnTrack.textContent='🎥 追踪中';
+    btnTrack.className='btn btn-reset';
+    document.getElementById('modeLive').classList.remove('on');
+    trackBadge.classList.add('on');
+  }else{
+    resetTracking();
+    trackBadge.classList.remove('on');
+  }
+}
+
+// ============ 截图 ============
+function captureScreenshot(landmarks,highlight){
+  const tc=document.createElement('canvas');
+  tc.width=canvasEl.width;tc.height=canvasEl.height;
+  const tctx=tc.getContext('2d');
+  tctx.save();tctx.scale(-1,1);tctx.drawImage(videoEl,-tc.width,0,tc.width,tc.height);tctx.restore();
+  if(landmarks&&landmarks.length>0){
+    const w=tc.width,h=tc.height;
+    for(const[i,j]of CONNECTIONS){
+      const a=landmarks[i],b=landmarks[j];if(!a||!b||a.visibility<0.5||b.visibility<0.5)continue;
+      tctx.beginPath();tctx.moveTo(a.x*w,h-a.y*h);tctx.lineTo(b.x*w,h-b.y*h);
+      const ra=(i===12&&j===14)||(i===14&&j===16);
+      tctx.strokeStyle=ra?'rgba(249,115,22,0.9)':'rgba(107,114,128,0.5)';
+      tctx.lineWidth=ra?3.5:2;tctx.stroke();
+    }
+    for(let i=0;i<landmarks.length;i++){
+      const lm=landmarks[i];if(!lm||lm.visibility<0.5)continue;
+      const r=i===12||i===14||i===16;
+      tctx.beginPath();tctx.arc(lm.x*w,h-lm.y*h,r?6:4,0,Math.PI*2);
+      tctx.fillStyle=lmColor(i);tctx.fill();
+    }
+  }
+  // 击球瞬间标记
+  if(highlight){
+    tctx.beginPath();tctx.arc(tc.width-40,40,20,0,Math.PI*2);
+    tctx.fillStyle='rgba(249,115,22,0.7)';tctx.fill();
+    tctx.fillStyle='#fff';tctx.font='bold 14px sans-serif';tctx.textAlign='center';tctx.fillText('HIT',tc.width-40,45);
+    tctx.textAlign='start';
+  }
+  return tc.toDataURL('image/jpeg',0.7);
+}
+
+// ============ 击球检测（羽毛球版） ============
+function detectHit(wristX,wristY,frameIndex,landmarks){
+  // 使用合速度 √(dx²+dy²) 而非仅X轴
+  wristHistory.push({x:wristX,y:wristY,idx:frameIndex,ts:performance.now()});
+  if(wristHistory.length>60)wristHistory.shift();
+  if(wristHistory.length<5)return;
+
+  const recent=wristHistory.slice(-5);
+  let totalSpeed=0;
+  for(let i=1;i<recent.length;i++){
+    const dx=recent[i].x-recent[i-1].x;
+    const dy=recent[i].y-recent[i-1].y;
+    totalSpeed+=Math.sqrt(dx*dx+dy*dy);
+  }
+  const avgSpeed=totalSpeed/(recent.length-1);
+
+  // 如果正在锁定后录制（hitLockCountdown > 0），不触发新检测
+  if(hitLockCountdown>0)return;
+
+  if(!hitInProgress&&avgSpeed>0.015&&performance.now()-lastHitTime>600){
+    hitInProgress=true;hitPeakSpeed=avgSpeed;hitPeakIdx=frameIndex;
+  }else if(hitInProgress){
+    if(avgSpeed>hitPeakSpeed){hitPeakSpeed=avgSpeed;hitPeakIdx=frameIndex;}
+    if(avgSpeed<0.003){
+      // 击球确认！锁定片段
+      hitCount++;
+      const hitFrameData={
+        idx:hitPeakIdx,
+        speed:hitPeakSpeed,
+        timestamp:performance.now()-recStartTime,
+        hitNum:hitCount
+      };
+
+      // 从环形缓冲区提取击球前帧
+      const preFrames=getPreHitFrames(60); // ~2秒
+      hits.push({...hitFrameData,preFrames:preFrames});
+
+      // 锁定：继续录制 BUFFER_SIZE 帧作为击球后片段
+      currentClipFrames=[...preFrames];
+      hitLockCountdown=BUFFER_SIZE;
+
+      // 截图击球瞬间
+      const capLandmarks=lastResults&&lastResults.poseLandmarks?lastResults.poseLandmarks:null;
+      if(capLandmarks){
+        const ss=captureScreenshot(capLandmarks,true);
+        const rElbow=calcAngle(capLandmarks[12],capLandmarks[14],capLandmarks[16]);
+        screenshots.push({dataUrl:ss,elbowAngle:rElbow,speed:hitPeakSpeed,hitNum:hitCount,idx:recordedFrames.length});
+      }
+
+      hitInProgress=false;hitPeakSpeed=0;lastHitTime=performance.now();
+      hitCountLive.textContent=hitCount;
+      document.getElementById('hitCntBar').textContent=hitCount;
+      document.getElementById('hitCntBar').className='val orange';
+
+      // 闪光效果
+      hitFlash.classList.add('pop');
+      setTimeout(()=>hitFlash.classList.remove('pop'),100);
+    }
+  }
+}
+
+// 从环形缓冲区提取击球前N帧
+function getPreHitFrames(n){
+  const frames=[];
+  if(ringBufferFull){
+    // 从 ringBufIdx 向前取 n 帧（ringBufIdx 是下一个写入位置 = 最新帧+1）
+    const total=BUFFER_SIZE;
+    const start=(ringBufIdx-n+total)%total;
+    for(let i=0;i<n;i++){
+      const idx=(start+i)%total;
+      if(ringBuffer[idx])frames.push(ringBuffer[idx]);
+      else break;
+    }
+  }else{
+    // 缓冲区还没满，从开头取
+    const start=Math.max(0,ringBufIdx-n);
+    for(let i=start;i<ringBufIdx;i++){
+      frames.push(ringBuffer[i]);
+    }
+  }
+  return frames;
+}
+
+// ============ Pose 回调 ============
+function onPoseResults(r){lastResults=r;}
+
+// ============ 骨架绘制（双色系：持拍手暖色、非持拍手冷色） ============
+function drawSkeleton(landmarks){
+  const w=canvasEl.width,h=canvasEl.height;ctx.clearRect(0,0,w,h);
+  if(!landmarks||landmarks.length===0)return;
+
+  for(const[i,j]of CONNECTIONS){
+    const a=landmarks[i],b=landmarks[j];if(!a||!b||a.visibility<0.5||b.visibility<0.5)continue;
+    ctx.beginPath();ctx.moveTo(a.x*w,a.y*h);ctx.lineTo(b.x*w,b.y*h);
+    // 持拍手(右)暖色高亮，非持拍手(左)冷色
+    const isRightArm=(i===12&&j===14)||(i===14&&j===16);
+    const isLeftArm=(i===11&&j===13)||(i===13&&j===15);
+    const isRightLeg=(i===24&&j===26)||(i===26&&j===28);
+    const isLeftLeg=(i===23&&j===25)||(i===25&&j===27);
+    if(isRightArm){ctx.strokeStyle='rgba(249,115,22,0.9)';ctx.lineWidth=3.5;}
+    else if(isLeftArm){ctx.strokeStyle='rgba(99,102,241,0.7)';ctx.lineWidth=2.5;}
+    else if(isRightLeg){ctx.strokeStyle='rgba(52,211,153,0.6)';ctx.lineWidth=2;}
+    else if(isLeftLeg){ctx.strokeStyle='rgba(6,182,212,0.6)';ctx.lineWidth=2;}
+    else{ctx.strokeStyle='rgba(107,114,128,0.4)';ctx.lineWidth=1.5;}
+    ctx.stroke();
+  }
+  for(let i=0;i<landmarks.length;i++){
+    const lm=landmarks[i];if(!lm||lm.visibility<0.5)continue;
+    const cx=lm.x*w,cy=lm.y*h;
+    const size=(i===12||i===14||i===16)?6:(i===11||i===13||i===15)?5:(i===26||i===25)?5:3.5;
+    ctx.beginPath();ctx.arc(cx,cy,size,0,Math.PI*2);ctx.fillStyle=lmColor(i);ctx.fill();
+    if(i===12||i===14||i===16){
+      ctx.beginPath();ctx.arc(cx,cy,9,0,Math.PI*2);ctx.globalAlpha=0.5;ctx.strokeStyle=lmColor(i);ctx.lineWidth=1.5;ctx.stroke();ctx.globalAlpha=1;
+    }
+  }
+
+  // 绘制关键角度标注
+  const shR=landmarks[12],elR=landmarks[14],wrR=landmarks[16];
+  if(shR&&elR&&wrR&&shR.visibility>0.5&&elR.visibility>0.5&&wrR.visibility>0.5){
+    const ang=calcAngle(shR,elR,wrR);
+    if(ang!==null){
+      ctx.font='bold 13px "Segoe UI","PingFang SC",sans-serif';
+      ctx.fillStyle=ang<100?'#f87171':'#34d399';
+      ctx.shadowColor='rgba(0,0,0,0.7)';ctx.shadowBlur=4;
+      ctx.fillText(ang+'°',elR.x*w+12,elR.y*h-12);
+      ctx.shadowBlur=0;
+    }
+  }
+  // 左肘角度
+  const shL=landmarks[11],elL=landmarks[13],wrL=landmarks[15];
+  if(shL&&elL&&wrL&&shL.visibility>0.5&&elL.visibility>0.5&&wrL.visibility>0.5){
+    const ang=calcAngle(shL,elL,wrL);
+    if(ang!==null){
+      ctx.font='bold 11px "Segoe UI","PingFang SC",sans-serif';
+      ctx.fillStyle='#a5b4fc';
+      ctx.shadowColor='rgba(0,0,0,0.7)';ctx.shadowBlur=3;
+      ctx.fillText(ang+'°',elL.x*w+10,elL.y*h-10);
+      ctx.shadowBlur=0;
+    }
+  }
+  // 右膝角度
+  const hipR=landmarks[24],kneeR=landmarks[26],ankR=landmarks[28];
+  if(hipR&&kneeR&&ankR&&hipR.visibility>0.5&&kneeR.visibility>0.5&&ankR.visibility>0.5){
+    const ang=calcAngle(hipR,kneeR,ankR);
+    if(ang!==null&&ang<150){
+      ctx.font='bold 11px "Segoe UI","PingFang SC",sans-serif';
+      ctx.fillStyle='#34d399';
+      ctx.shadowColor='rgba(0,0,0,0.7)';ctx.shadowBlur=3;
+      ctx.fillText(Math.round(ang)+'°',kneeR.x*w+10,kneeR.y*h-10);
+      ctx.shadowBlur=0;
+    }
+  }
+}
+
+// ============ 主循环 ============
+function loop(){
+  if(!isRunning)return;
+  fpsFrames++;const now=performance.now();
+  if(now-fpsLastTime>=1000){currentFPS=fpsFrames;fpsFrames=0;fpsLastTime=now;}
+
+  if(lastResults&&lastResults.poseLandmarks){
+    const lm=lastResults.poseLandmarks;
+    drawSkeleton(lm);
+
+    // 计算所有角度
+    const shR=lm[12],elR=lm[14],wrR=lm[16];
+    const shL=lm[11],elL=lm[13],wrL=lm[15];
+    const hipR=lm[24],kneeR=lm[26],ankR=lm[28];
+
+    let rElbowAngle=null,lElbowAngle=null,rKneeAngle=null,torsionAngle=null,tiltData=null;
+    let rWristSpd=0;
+
+    if(shR&&elR&&wrR&&shR.visibility>0.5&&elR.visibility>0.5&&wrR.visibility>0.5)
+      rElbowAngle=calcAngle(shR,elR,wrR);
+    if(shL&&elL&&wrL&&shL.visibility>0.5&&elL.visibility>0.5&&wrL.visibility>0.5)
+      lElbowAngle=calcAngle(shL,elL,wrL);
+    if(hipR&&kneeR&&ankR&&hipR.visibility>0.5&&kneeR.visibility>0.5&&ankR.visibility>0.5)
+      rKneeAngle=calcAngle(hipR,kneeR,ankR);
+    torsionAngle=calcTorsionAngle(lm);
+    tiltData=calcTiltAngle(lm);
+
+    // 计算手腕合速度
+    if(wrR&&wrR.visibility>0.5&&wristHistory.length>0){
+      const prev=wristHistory[wristHistory.length-1];
+      const dx=wrR.x-prev.x,dy=wrR.y-prev.y;
+      rWristSpd=Math.round(Math.sqrt(dx*dx+dy*dy)*10000)/10;
+    }
+
+    if(recording){
+      const frameData={
+        ts:now-recStartTime,
+        landmarks:lm.map(p=>({x:p.x,y:p.y,z:p.z||0,visibility:p.visibility})),
+        rElbowAngle,lElbowAngle,rKneeAngle,torsionAngle,
+        tiltAngle:tiltData?tiltData.angle:null,tiltForward:tiltData?tiltData.forward:null,
+        rWristSpd,
+        hipX:(lm[23]&&lm[24])?(lm[23].x+lm[24].x)/2:null,
+        hipY:(lm[23]&&lm[24])?(lm[23].y+lm[24].y)/2:null
+      };
+      recordedFrames.push(frameData);
+      updateDistance(lm);
+
+      // 环形缓冲区写入
+      ringBuffer[ringBufIdx]=frameData;
+      ringBufIdx=(ringBufIdx+1)%BUFFER_SIZE;
+      if(ringBufIdx===0)ringBufFull=true;
+
+      // 击球锁定后录制
+      if(hitLockCountdown>0){
+        currentClipFrames.push(frameData);
+        hitLockCountdown--;
+        if(hitLockCountdown===0){
+          // 片段完成
+          const lastHit=hits[hits.length-1];
+          if(lastHit){
+            lastHit.postFrames=currentClipFrames.slice(-BUFFER_SIZE);
+            lastHit.clipFrames=currentClipFrames;
+          }
+        }
+      }
+
+      // 检测击球（如果不在锁定状态）
+      if(wrR&&wrR.visibility>0.5&&hitLockCountdown===0)
+        detectHit(wrR.x,wrR.y,recordedFrames.length-1,lm);
+
+      updateTracking(lm);
+    }
+
+    updateLiveUI(rElbowAngle,lElbowAngle,rWristSpd,torsionAngle,rKneeAngle);
+  }else{
+    updateLiveUI(null,null,null,null,null);
+  }
+  animFrameId=requestAnimationFrame(loop);
+}
+
+function updateLiveUI(rElbow,lElbow,rWristSpd,torsion,rKnee){
+  const eR=document.getElementById('rElbow'),eL=document.getElementById('lElbow');
+  const ws=document.getElementById('rWristSpd'),t=document.getElementById('torsion');
+  const k=document.getElementById('rKnee');
+
+  eR.textContent=rElbow!==null?rElbow+'°':'--°';
+  eR.className='val '+(rElbow!==null?(rElbow<100?'bad':'good'):'neut');
+  eL.textContent=lElbow!==null?lElbow+'°':'--°';
+  eL.className='val '+(lElbow!==null?(lElbow<90?'bad':lElbow>150?'good':'neut'):'neut');
+  ws.textContent=rWristSpd!==null?rWristSpd.toFixed(1):'--';
+  ws.className='val '+(rWristSpd>25?'orange':'neut');
+  t.textContent=torsion!==null?torsion+'°':'--°';
+  t.className='val '+(torsion!==null?(torsion>25?'good':'neut'):'neut');
+  k.textContent=rKnee!==null?Math.round(rKnee)+'°':'--°';
+  k.className='val '+(rKnee!==null?(rKnee<120?'good':'neut'):'neut');
+}
+
+// ============ 摄像头 ============
+async function toggleCamera(){
+  if(state===STATE.IDLE)await startCamera();else stopCamera();
+}
+async function startCamera(){
+  try{
+    btnCam.disabled=true;document.getElementById('statusLabel').textContent='初始化中…';document.getElementById('statusLabel').className='val neut';
+    if(!window.Pose)throw new Error('MediaPipe 加载失败');
+    poseInstance=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${f}`});
+    poseInstance.setOptions({modelComplexity:1,smoothLandmarks:true,enableSegmentation:false,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+    poseInstance.onResults(onPoseResults);await poseInstance.initialize();
+
+    const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:640},height:{ideal:480},facingMode:'user',frameRate:{ideal:30}}});
+    videoEl.srcObject=stream;await videoEl.play();
+    await new Promise(r=>{if(videoEl.videoWidth>0)r();else videoEl.addEventListener('loadedmetadata',r,{once:true});});
+    canvasEl.width=videoEl.videoWidth;canvasEl.height=videoEl.videoHeight;
+
+    cameraInstance=new Camera(videoEl,{onFrame:async()=>{if(poseInstance)await poseInstance.send({image:videoEl});},width:640,height:480});
+    await cameraInstance.start();
+    isRunning=true;fpsFrames=0;fpsLastTime=performance.now();loop();
+
+    state=STATE.READY;btnCam.textContent='⏹ 关闭摄像头';btnCam.className='btn btn-reset';btnCam.disabled=false;
+    btnRec.disabled=false;btnTrack.disabled=false;
+    document.getElementById('statusLabel').textContent='就绪';document.getElementById('statusLabel').className='val good';
+  }catch(e){console.error(e);document.getElementById('statusLabel').textContent='启动失败';document.getElementById('statusLabel').className='val bad';btnCam.disabled=false;}
+}
+
+function stopCamera(){
+  if(recording)stopRecordingInternal();
+  resetTracking();trackBadge.classList.remove('on');
+  if(animFrameId){cancelAnimationFrame(animFrameId);animFrameId=null;}
+  isRunning=false;
+  if(cameraInstance){cameraInstance.stop();cameraInstance=null;}
+  if(videoEl.srcObject){videoEl.srcObject.getTracks().forEach(t=>t.stop());videoEl.srcObject=null;}
+  ctx.clearRect(0,0,canvasEl.width,canvasEl.height);
+  lastResults=null;poseInstance=null;state=STATE.IDLE;
+  btnCam.textContent='📷 打开摄像头';btnCam.className='btn btn-cam';btnCam.disabled=false;
+  btnRec.textContent='🔴 开始录制';btnRec.disabled=true;btnTrack.disabled=true;
+  btnExport.style.display='none';btnExport.disabled=true;
+  resetLiveUI();
+}
+
+function resetLiveUI(){
+  const ids=['rElbow','lElbow','rWristSpd','torsion','rKnee','hitCntBar','distBar'];
+  const defaults=['--°','--°','--','--°','--°','0','0m'];
+  ids.forEach((id,i)=>{document.getElementById(id).textContent=defaults[i];document.getElementById(id).className='val neut';});
+  document.getElementById('statusLabel').textContent='待启动';document.getElementById('statusLabel').className='val neut';
+  resultPanel.classList.remove('show');
+}
+
+// ============ 录制 ============
+function toggleRecording(){
+  if(!recording)startRecording();else stopAndAnalyze();
+}
+function startRecording(){
+  recordedFrames=[];hitCount=0;hits=[];screenshots=[];wristHistory=[];hitInProgress=false;hitPeakSpeed=0;lastHitTime=0;
+  hipTrack=[];totalDistPx=0;totalDistM=0;startHipPos=null;maxSpanPx=0;shoulderWidthRef=0;
+  ringBuffer=[];ringBufIdx=0;ringBufFull=false;hitLockCountdown=0;currentClipFrames=[];
+
+  recording=true;recStartTime=performance.now();
+  recInd.classList.add('on');hitBadge.classList.add('on');trackBadge.classList.add('on');
+  hitCountLive.textContent='0';distLive.textContent='0m';
+  btnRec.textContent='⏹ 停止并分析';btnCam.disabled=true;btnReset.disabled=true;
+  document.getElementById('statusLabel').textContent='🔴 录制中';document.getElementById('statusLabel').className='val bad';
+  resultPanel.classList.remove('show');
+  let sec=0;recTimer.textContent='00:00';
+  recTimerInterval=setInterval(()=>{sec++;const m=Math.floor(sec/60),s=sec%60;recTimer.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');},1000);
+}
+function stopRecordingInternal(){
+  recording=false;recInd.classList.remove('on');hitBadge.classList.remove('on');
+  if(recTimerInterval){clearInterval(recTimerInterval);recTimerInterval=null;}
+}
+function stopAndAnalyze(){
+  stopRecordingInternal();
+  btnRec.textContent='🔴 开始录制';btnCam.disabled=false;btnReset.disabled=false;
+  document.getElementById('statusLabel').textContent='分析中…';document.getElementById('statusLabel').className='val neut';
+  resetTracking();trackBadge.classList.remove('on');
+
+  if(recordedFrames.length<10){document.getElementById('statusLabel').textContent='数据不足';document.getElementById('statusLabel').className='val bad';return;}
+
+  // 补全 hits 中缺少的 postFrames
+  for(const h of hits){
+    if(!h.postFrames){
+      h.postFrames=recordedFrames.slice(Math.min(recordedFrames.length-1,h.idx),Math.min(recordedFrames.length,h.idx+BUFFER_SIZE));
+      h.clipFrames=[...h.preFrames,...h.postFrames];
+    }
+  }
+
+  const report=analyze(recordedFrames);
+  showReport(report,recordedFrames);
+
+  state=STATE.RESULT;btnExport.style.display='inline-block';btnExport.disabled=false;
+  document.getElementById('statusLabel').textContent='分析完成';document.getElementById('statusLabel').className='val good';
+}
+
+// ============ 动作分类 ============
+function classifyShot(rElbowAngle,avgWristSpd,tiltForward,wrY,shY){
+  // 手腕高于肩 = 过顶击球（高远球/杀球/吊球）
+  const isOverhead=wrY!==null&&shY!==null&&wrY<shY;
+  const isLeaningForward=tiltForward===true;
+  const isLeaningBack=tiltForward===false;
+
+  if(avgWristSpd>40&&(rElbowAngle===null||rElbowAngle>130)&&isOverhead&&isLeaningForward){
+    return {type:'💥 杀球 (Smash)',confidence:'高'};
+  }else if(avgWristSpd>20&&(rElbowAngle===null||rElbowAngle>130)&&isOverhead&&isLeaningBack){
+    return {type:'🏸 高远球 (Clear)',confidence:'中'};
+  }else if(avgWristSpd<15&&(rElbowAngle===null||rElbowAngle>120)&&isOverhead){
+    return {type:'🎯 吊球 (Drop)',confidence:'中'};
+  }else if(avgWristSpd>15&&avgWristSpd<40&&(rElbowAngle!==null&&rElbowAngle>100&&rElbowAngle<150)&&!isOverhead){
+    return {type:'⚡ 平抽 (Drive)',confidence:'中'};
+  }else if(avgWristSpd<15&&(rElbowAngle!==null&&rElbowAngle<110)&&!isOverhead){
+    return {type:'🥅 网前 (Net)',confidence:'低'};
+  }
+  return {type:'🏸 其他',confidence:'低'};
+}
+
+// ============ 分析引擎 ============
+function analyze(frames){
+  const angles=frames.map(f=>f.rElbowAngle).filter(a=>a!==null);
+  const wristSpds=frames.map(f=>f.rWristSpd||0);
+  const torsions=frames.map(f=>f.torsionAngle).filter(t=>t!==null);
+  const kneeAngles=frames.map(f=>f.rKneeAngle).filter(k=>k!==null);
+
+  const minAngle=angles.length>0?Math.min(...angles):0;
+  const maxAngle=angles.length>0?Math.max(...angles):0;
+  const avgAngle=angles.length>0?Math.round(angles.reduce((a,b)=>a+b,0)/angles.length*10)/10:0;
+  const bentFrames=angles.filter(a=>a<100).length;
+  const bentRatio=angles.length>0?bentFrames/angles.length:0;
+  const variance=angles.length>0?angles.reduce((s,a)=>s+(a-avgAngle)**2,0)/angles.length:0;
+  const stdDev=Math.round(Math.sqrt(variance)*10)/10;
+
+  // 击球瞬间指标
+  let hitElbowAngles=[],hitWristSpds=[],hitTorsions=[],hitKneeAngles=[],hitTilts=[];
+  for(const h of hits){
+    if(h.idx<frames.length){
+      const f=frames[h.idx];
+      if(f.rElbowAngle!==null)hitElbowAngles.push(f.rElbowAngle);
+      if(f.rWristSpd!==undefined)hitWristSpds.push(f.rWristSpd);
+      if(f.torsionAngle!==null)hitTorsions.push(f.torsionAngle);
+      if(f.rKneeAngle!==null)hitKneeAngles.push(f.rKneeAngle);
+      if(f.tiltAngle!==null)hitTilts.push(f.tiltForward?f.tiltAngle:-f.tiltAngle);
+    }
+  }
+  const avgHitElbow=hitElbowAngles.length>0?Math.round(hitElbowAngles.reduce((a,b)=>a+b,0)/hitElbowAngles.length*10)/10:null;
+  const avgHitWristSpd=hitWristSpds.length>0?Math.round(hitWristSpds.reduce((a,b)=>a+b,0)/hitWristSpds.length*10)/10:null;
+  const avgHitTorsion=hitTorsions.length>0?Math.round(hitTorsions.reduce((a,b)=>a+b,0)/hitTorsions.length*10)/10:null;
+  const avgHitKnee=hitKneeAngles.length>0?Math.round(hitKneeAngles.reduce((a,b)=>a+b,0)/hitKneeAngles.length*10)/10:null;
+
+  // 非持拍手评分
+  const lElbowAngles=frames.map(f=>f.lElbowAngle).filter(a=>a!==null);
+  const avgLElbow=lElbowAngles.length>0?lElbowAngles.reduce((a,b)=>a+b,0)/lElbowAngles.length:0;
+  const nonRacketRaised=avgLElbow>100; // 非持拍手抬起
+
+  // 评分
+  let score=100;
+  if(hitElbowAngles.length>0){
+    const minHitElbow=Math.min(...hitElbowAngles);
+    if(minHitElbow<100)score-=20;else if(minHitElbow<130)score-=10;else if(minHitElbow<160)score-=5;
+  }else{score-=10;}
+  if(hitWristSpds.length>0){
+    const maxHitWristSpd=Math.max(...hitWristSpds);
+    if(maxHitWristSpd<15)score-=15;else if(maxHitWristSpd<25)score-=8;
+  }else{score-=10;}
+  if(avgHitTorsion!==null){
+    if(avgHitTorsion<15)score-=15;else if(avgHitTorsion<25)score-=8;
+  }else{score-=10;}
+  if(!nonRacketRaised)score-=10;
+  if(avgHitKnee!==null&&avgHitKnee>140)score-=5;
+  if(stdDev>18)score-=12;else if(stdDev>10)score-=6;
+  if(hitCount===0)score-=15;
+  score=Math.max(0,Math.min(100,Math.round(score)));
+  const grade=score>=80?'great':score>=55?'ok':'poor';
+
+  // 动作分类
+  let shotType={type:'🏸 未识别',confidence:'--'};
+  if(hits.length>0){
+    const firstHit=hits[0];
+    if(firstHit.idx<frames.length){
+      const f=frames[firstHit.idx];
+      const wrLandmark=f.landmarks?f.landmarks[16]:null;
+      const shLandmark=f.landmarks?f.landmarks[12]:null;
+      shotType=classifyShot(f.rElbowAngle,firstHit.speed*10000,f.tiltForward,
+        wrLandmark?wrLandmark.y:null,shLandmark?shLandmark.y:null);
+    }
+  }
+
+  return{
+    minAngle,maxAngle,avgAngle,bentFrames,totalFrames:frames.length,
+    bentRatio:Math.round(bentRatio*1000)/10,stdDev,
+    avgHitElbow,avgHitWristSpd,avgHitTorsion,avgHitKnee,
+    nonRacketRaised,avgLElbow:Math.round(avgLElbow*10)/10,
+    avgTilt:Math.round((hitTilts.reduce((a,b)=>a+b,0)/(hitTilts.length||1))*10)/10,
+    score,grade,duration:frames[frames.length-1].ts/1000,hitCount,
+    totalDistM:Math.round(totalDistM*100)/100,
+    maxSpanM:Math.round(pxToMeters(maxSpanPx)*100)/100,
+    hipTrack:[...hipTrack],shoulderWidthRef,
+    shotType:shotType.type,shotConfidence:shotType.confidence,
+  };
+}
+
+// ============ 报告 ============
+function showReport(r,frames){
+  lastReport=r; // 保存供导出使用
+  document.getElementById('scoreBadge').textContent=r.score;
+  document.getElementById('scoreBadge').className='score-badge '+r.grade;
+  document.getElementById('hitTotal').textContent=r.hitCount+' 次';
+  document.getElementById('minElbow').textContent=r.minAngle+'°';
+  document.getElementById('minElbow').style.color=r.minAngle<100?'#f87171':'#34d399';
+  document.getElementById('avgWristSpd').textContent=r.avgHitWristSpd!==null?r.avgHitWristSpd.toFixed(1):'--';
+  document.getElementById('avgWristSpd').style.color=(r.avgHitWristSpd||0)>25?'#34d399':'#f87171';
+  document.getElementById('maxTorsion').textContent=r.avgHitTorsion!==null?r.avgHitTorsion+'°':'--°';
+  document.getElementById('maxTorsion').style.color=(r.avgHitTorsion||0)>25?'#34d399':'#f87171';
+  document.getElementById('distTotal').textContent=r.totalDistM+'m';
+  document.getElementById('stability').textContent='±'+r.stdDev+'°';
+  document.getElementById('stability').style.color=r.stdDev>15?'#f87171':'#34d399';
+  document.getElementById('shotTypes').textContent=r.shotType+' ('+r.shotConfidence+')';
+  document.getElementById('nonRacketScore').textContent=r.nonRacketRaised?'✅ 已抬起':'⚠ 未抬起';
+  document.getElementById('nonRacketScore').style.color=r.nonRacketRaised?'#34d399':'#f87171';
+  document.getElementById('kneeBend').textContent=r.avgHitKnee!==null?r.avgHitKnee+'°':r.avgHitKnee!==null?'∠':'--';
+  document.getElementById('kneeBend').style.color=(r.avgHitKnee||180)<130?'#34d399':'#f87171';
+  document.getElementById('bodyTilt').textContent=r.avgTilt+'°';
+
+  // 击球截图
+  const gallery=document.getElementById('clipsGallery'),clSec=document.getElementById('clipsSection');
+  if(screenshots.length>0){
+    clSec.style.display='block';
+    let bestIdx=0,worstIdx=0,bestAngle=0,worstAngle=180;
+    screenshots.forEach((ss,i)=>{
+      if(ss.elbowAngle!==null&&ss.elbowAngle>bestAngle){bestAngle=ss.elbowAngle;bestIdx=i;}
+      if(ss.elbowAngle!==null&&ss.elbowAngle<worstAngle){worstAngle=ss.elbowAngle;worstIdx=i;}
+    });
+    gallery.innerHTML=screenshots.map((ss,i)=>{
+      let cls='',label='击球 #'+(i+1);
+      if(i===bestIdx&&screenshots.length>1){cls='best';label='✅ 最佳 #'+(i+1)+' ('+Math.round(bestAngle)+'°)';}
+      else if(i===worstIdx&&screenshots.length>1&&worstAngle<100){cls='worst';label='⚠ 需改进 #'+(i+1)+' ('+Math.round(worstAngle)+'°)';}
+      else label+=' ('+(ss.elbowAngle!==null?Math.round(ss.elbowAngle)+'°':'--')+')';
+      return '<div class="clip-card '+cls+'"><img src="'+ss.dataUrl+'" alt="击球'+(i+1)+'"/><div class="cl-label">'+label+'</div></div>';
+    }).join('');
+  }else{clSec.style.display='none';}
+
+  drawChart(frames,r);
+  drawCourtDiagram(r);
+  buildVerdict(r);
+  buildDrills(r);
+  resultPanel.classList.add('show');
+  resultPanel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+// ============ 羽毛球场轨迹图 ============
+function drawCourtDiagram(r){
+  const cc=document.getElementById('courtCanvas'),cw=cc.parentElement.clientWidth-28;
+  cc.width=cw;cc.height=180;
+  const cx=cc.getContext('2d'),w=cc.width,h=cc.height;
+  cx.clearRect(0,0,w,h);
+
+  // 羽毛球场背景（绿色场地区域）
+  const margin=20,cw2=w-margin*2,ch2=h-margin*2;
+  cx.fillStyle='#1a3a2a';cx.fillRect(margin,margin,cw2,ch2);
+  cx.strokeStyle='#3a6a4a';cx.lineWidth=1;
+  cx.strokeRect(margin,margin,cw2,ch2);
+  // 中线
+  cx.beginPath();cx.moveTo(margin+cw2/2,margin);cx.lineTo(margin+cw2/2,margin+ch2);cx.stroke();
+  cx.setLineDash([4,8]);cx.beginPath();cx.moveTo(margin,margin+ch2/2);cx.lineTo(margin+cw2,margin+ch2/2);cx.stroke();cx.setLineDash([]);
+
+  if(r.hipTrack.length<2){cx.fillStyle='#666';cx.font='12px sans-serif';cx.textAlign='center';cx.fillText('无足够跑动数据',w/2,h/2);return;}
+
+  const allX=r.hipTrack.map(p=>p.x),allY=r.hipTrack.map(p=>p.y);
+  const minX=Math.min(...allX),maxX=Math.max(...allX),minY=Math.min(...allY),maxY=Math.max(...allY);
+  const rangeX=maxX-minX||0.1,rangeY=maxY-minY||0.1;
+
+  function toCanvas(px,py){
+    return{x:margin+((px-minX)/rangeX)*cw2,y:margin+ch2-((py-minY)/rangeY)*ch2};
+  }
+
+  cx.strokeStyle='rgba(249,115,22,0.5)';cx.lineWidth=2;cx.lineCap='round';
+  cx.beginPath();
+  for(let i=0;i<r.hipTrack.length;i++){
+    const p=toCanvas(r.hipTrack[i].x,r.hipTrack[i].y);
+    if(i===0)cx.moveTo(p.x,p.y);else cx.lineTo(p.x,p.y);
+  }
+  cx.stroke();
+
+  const segLen=Math.max(1,Math.floor(r.hipTrack.length/30));
+  for(let i=0;i<r.hipTrack.length;i+=segLen){
+    const p=toCanvas(r.hipTrack[i].x,r.hipTrack[i].y);
+    const t=i/r.hipTrack.length;
+    cx.beginPath();cx.arc(p.x,p.y,3,0,Math.PI*2);
+    cx.fillStyle=`rgba(${Math.round(255*t)},${Math.round(100*(1-t))},${Math.round(255*(1-t))},0.7)`;cx.fill();
+  }
+
+  const start=toCanvas(r.hipTrack[0].x,r.hipTrack[0].y);
+  const end=toCanvas(r.hipTrack[r.hipTrack.length-1].x,r.hipTrack[r.hipTrack.length-1].y);
+  cx.beginPath();cx.arc(start.x,start.y,6,0,Math.PI*2);cx.fillStyle='#34d399';cx.fill();
+  cx.fillStyle='#fff';cx.font='bold 10px sans-serif';cx.textAlign='center';cx.fillText('起点',start.x,start.y-10);
+  cx.beginPath();cx.arc(end.x,end.y,6,0,Math.PI*2);cx.fillStyle='#f97316';cx.fill();
+  cx.fillText('终点',end.x,end.y-10);
+
+  cx.fillStyle='#ccc';cx.font='12px sans-serif';cx.textAlign='center';
+  cx.fillText('总跑动: '+r.totalDistM+'m  |  最大跨度: '+r.maxSpanM+'m',w/2,h-4);
+  cx.textAlign='start';
+}
+
+// ============ 图表（双线：肘角度 + 腕速度） ============
+function drawChart(frames,r){
+  const cc=document.getElementById('chartCanvas'),cw=cc.parentElement.clientWidth-20;
+  cc.width=cw;cc.height=200;const cx=cc.getContext('2d'),w=cc.width,h=cc.height;
+  cx.clearRect(0,0,w,h);
+
+  const angles=frames.map(f=>f.rElbowAngle!==null?f.rElbowAngle:NaN);
+  const speeds=frames.map(f=>f.rWristSpd||0);
+  if(angles.filter(a=>!isNaN(a)).length<2)return;
+
+  const ml=55,mr=20,mt=30,mb=40,pw=w-ml-mr,ph=h-mt-mb;
+
+  // 左Y轴：角度 (0-180°)
+  const y100=mt+ph-(100/180)*ph;
+  cx.strokeStyle='#222';cx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=mt+(ph/4)*i;cx.beginPath();cx.moveTo(ml,y);cx.lineTo(w-mr,y);cx.stroke();}
+  cx.strokeStyle='rgba(248,113,113,0.5)';cx.lineWidth=1.5;cx.setLineDash([6,4]);
+  cx.beginPath();cx.moveTo(ml,y100);cx.lineTo(w-mr,y100);cx.stroke();cx.setLineDash([]);
+  cx.fillStyle='#f87171';cx.font='10px sans-serif';cx.fillText('100°',ml+4,y100-4);
+
+  cx.fillStyle='#888';cx.font='10px sans-serif';cx.textAlign='right';
+  for(let i=0;i<=4;i++){const y=mt+(ph/4)*i;cx.fillText(Math.round(180-i*45)+'°',ml-6,y+4);}
+  cx.textAlign='start';cx.fillText('0s',ml,h-6);cx.fillText((frames[frames.length-1].ts/1000).toFixed(1)+'s',w-mr-30,h-6);
+
+  // 肘角度曲线
+  cx.strokeStyle='#f97316';cx.lineWidth=2.5;cx.shadowColor='rgba(249,115,22,0.4)';cx.shadowBlur=6;
+  cx.beginPath();let started=false;
+  for(let i=0;i<frames.length;i++){
+    if(isNaN(angles[i])){started=false;continue;}
+    const x=ml+(i/(frames.length-1))*pw,y=mt+ph-(angles[i]/180)*ph;
+    if(!started){cx.moveTo(x,y);started=true;}else cx.lineTo(x,y);
+  }
+  cx.stroke();cx.shadowBlur=0;
+
+  // 击球点标记
+  for(const h of hits){
+    if(h.idx<frames.length&&!isNaN(angles[h.idx])){
+      const sx=ml+(h.idx/(frames.length-1))*pw,sy=mt+ph-(angles[h.idx]/180)*ph;
+      cx.beginPath();cx.arc(sx,sy,5,0,Math.PI*2);cx.fillStyle='#ff3b3b';cx.fill();
+      cx.strokeStyle='#fff';cx.lineWidth=1;cx.stroke();
+    }
+  }
+
+  cx.fillStyle='#ccc';cx.font='12px sans-serif';cx.textAlign='center';
+  cx.fillText('持拍手肘角度曲线 —— 红点 = 击球瞬间 | 虚线 = 100°阈值',w/2,18);
+  cx.textAlign='start';
+}
+
+// ============ 诊断 ============
+function buildVerdict(r){
+  const items=[];
+  if(r.score>=80)items.push({cls:'good',txt:'✅ 整体动作质量优秀！击球时手臂伸展充分，发力流畅'});
+  else if(r.score>=55)items.push({cls:'good',txt:'⚠️ 动作质量一般，存在改善空间'});
+  else items.push({cls:'bad',txt:'❌ 动作需大幅改进，请重点关注手臂伸展和转体发力'});
+
+  if(r.hitCount===0)items.push({cls:'bad',txt:'🔍 未检测到击球动作，请侧身对镜头做出完整的挥拍击球'});
+  else items.push({cls:'good',txt:'🏸 共检测到 '+r.hitCount+' 次击球动作（类型：'+r.shotType+'）'});
+
+  if(r.avgHitElbow!==null){
+    if(r.avgHitElbow<100)items.push({cls:'bad',txt:'🔴 击球瞬间肘关节弯曲严重（'+r.avgHitElbow+'°），手臂未伸展→力量传导效率低'});
+    else if(r.avgHitElbow<140)items.push({cls:'bad',txt:'🟡 击球瞬间肘关节未完全伸展（'+r.avgHitElbow+'°），建议刻意锁肘'});
+    else items.push({cls:'good',txt:'✅ 击球瞬间肘关节伸展良好（'+r.avgHitElbow+'°），力量传导高效'});
+  }
+
+  if(r.avgHitWristSpd!==null){
+    if(r.avgHitWristSpd<15)items.push({cls:'bad',txt:'🔴 击球瞬间手腕速度偏低（'+r.avgHitWristSpd.toFixed(1)+'），缺乏爆发力'});
+    else if(r.avgHitWristSpd<25)items.push({cls:'bad',txt:'🟡 手腕速度中等（'+r.avgHitWristSpd.toFixed(1)+'），可进一步提升爆发力'});
+    else items.push({cls:'good',txt:'✅ 手腕速度快（'+r.avgHitWristSpd.toFixed(1)+'），爆发力充足'});
+  }
+
+  if(r.avgHitTorsion!==null){
+    if(r.avgHitTorsion<15)items.push({cls:'bad',txt:'🔴 肩髋扭转不足（'+r.avgHitTorsion+'°），缺乏转体发力→全靠手臂'});
+    else if(r.avgHitTorsion<25)items.push({cls:'bad',txt:'🟡 转体幅度一般（'+r.avgHitTorsion+'°），建议加大侧身引拍'});
+    else items.push({cls:'good',txt:'✅ 肩髋扭转充分（'+r.avgHitTorsion+'°），转体发力良好'});
+  }
+
+  if(!r.nonRacketRaised)items.push({cls:'bad',txt:'⚠️ 非持拍手未抬起辅助平衡→影响击球稳定性和瞄准'});
+  else items.push({cls:'good',txt:'✅ 非持拍手抬起辅助平衡，姿势标准'});
+
+  if(r.avgHitKnee!==null&&r.avgHitKnee>140)items.push({cls:'bad',txt:'🟡 膝关节弯曲不足→缺乏下肢发力，建议多屈膝启动'});
+  else if(r.avgHitKnee!==null)items.push({cls:'good',txt:'✅ 屈膝发力良好（'+r.avgHitKnee+'°），下肢参与充分'});
+
+  if(r.totalDistM>3)items.push({cls:'good',txt:'👣 跑动距离 '+r.totalDistM+'m，脚步积极，覆盖范围好'});
+  else if(r.totalDistM>0.5)items.push({cls:'good',txt:'👣 跑动距离 '+r.totalDistM+'m'});
+  else items.push({cls:'bad',txt:'🦶 跑动距离不足（<0.5m），可能脚步偏懒'});
+
+  if(r.stdDev>15)items.push({cls:'bad',txt:'📊 肘角度波动大（±'+r.stdDev+'°），动作一致性需提升'});
+  else if(r.stdDev<8)items.push({cls:'good',txt:'📊 动作一致性优秀（±'+r.stdDev+'°）'});
+
+  document.getElementById('verdictList').innerHTML=items.map(i=>'<li class="'+i.cls+'">'+i.txt+'</li>').join('');
+}
+
+// ============ 羽毛球练习推荐 ============
+function buildDrills(r){
+  const drills=[];
+  const hasElbowIssue=r.avgHitElbow!==null&&r.avgHitElbow<130;
+  const hasWristIssue=r.avgHitWristSpd!==null&&r.avgHitWristSpd<20;
+  const hasTorsionIssue=r.avgHitTorsion!==null&&r.avgHitTorsion<20;
+  const hasNonRacketIssue=!r.nonRacketRaised;
+  const hasKneeIssue=r.avgHitKnee!==null&&r.avgHitKnee>130;
+  const noHit=r.hitCount===0;
+  const lowDist=r.totalDistM<0.5;
+
+  if(noHit){
+    drills.push({title:'📐 慢速分解挥拍练习',desc:'面对镜子，侧身站立，将羽毛球挥拍分解为4步：侧身引拍→转髋启动→手臂内旋前挥→随挥收拍。每步停留2秒，感受手臂从弯曲到伸展。每日3组×15次。'});
+  }
+  if(lowDist){
+    drills.push({title:'👟 并步 + 交叉步训练',desc:'无球状态下，练习羽毛球场地的并步（side shuffle）和交叉步（crossover）。在双打线之间快速移动，每次触线后回中。每日5分钟。'});
+    drills.push({title:'🎯 多球喂球练习',desc:'请搭档喂不同落点的球，强制移动中完成击球。重点感受：到位→站稳→击球→回中的完整节奏。'});
+  }
+  if(hasElbowIssue){
+    drills.push({title:'🔒 锁肘感知训练',desc:'徒手做正手高远球挥拍，在击球点位置停住，检查肘关节是否完全伸展（>160°）。在击球点停留3秒。每日5组×20次。'});
+    drills.push({title:'🧱 靠墙限制练习',desc:'背靠墙站立，做高远球挥拍动作。墙壁限制手臂过度后拉，迫使在有限空间内完成伸展。每日4组×15次。'});
+  }
+  if(hasWristIssue){
+    drills.push({title:'💪 手腕爆发力训练',desc:'使用加重训练拍（或网球拍），做快速手腕内旋（pronation）动作。重点是手腕瞬间发力，每组15次×3组。注意先热身手腕关节。'});
+    drills.push({title:'🖐️ 抓握释放练习',desc:'持拍做挥拍动作，在击球点瞬间快速握紧拍柄→然后放松。这模拟真实击球的手指发力，能显著提升爆发力。每日3组×20次。'});
+  }
+  if(hasTorsionIssue){
+    drills.push({title:'🔄 侧身转体分解练习',desc:'侧身站立（持拍手侧在后），双手举拍，只做转髋+转肩的联动动作。先慢速感受"髋先动→肩跟上→手臂最后"的发力链条。每日5组×20次。'});
+    drills.push({title:'🎾 转身传接球',desc:'侧身对墙站立，双手持药球（或篮球），转体将球对墙掷出。这模拟羽毛球击球的转体发力模式。每日3组×10次。'});
+  }
+  if(hasNonRacketIssue){
+    drills.push({title:'🤚 非持拍手辅助练习',desc:'侧身击球准备时，非持拍手（左手）上举指向来球方向，像"瞄准镜"一样。击球瞬间左手自然下拉至胸前。对着镜子练习，确保左手动作标准。每日5分钟。'});
+  }
+  if(hasKneeIssue){
+    drills.push({title:'🦵 屈膝启动训练',desc:'准备姿势保持膝盖微屈（约120°），听到口令后向上跳起做杀球动作。重点是感受屈膝蓄力→蹬地起跳的连贯发力。每日3组×15次。'});
+  }
+
+  if(!noHit&&!hasElbowIssue&&!hasWristIssue&&!hasTorsionIssue&&!hasNonRacketIssue&&!hasKneeIssue&&!lowDist){
+    drills.push({title:'🏆 全场组合练习',desc:'从后场高远球→中场平抽→前场网前，完成连续3种击球。每次录制检查动作一致性。目标：击球>5次且肘角度始终>140°。'});
+    drills.push({title:'⚡ 变速挥拍',desc:'慢速引拍（2秒）→加速前挥（0.5秒）→极速触球→自然随挥。重点感受引拍和触球的节奏变化。录制后对比各阶段速度曲线。'});
+  }
+
+  document.getElementById('drillsList').innerHTML=drills.map(d=>'<div class="drill-item"><h4>'+d.title+'</h4><p>'+d.desc+'</p></div>').join('');
+}
+
+// 保存最后一次报告引用（供导出使用）
+let lastReport=null;
+
+// ============ 导出 ============
+function exportData(){
+  if(!lastReport){console.warn('无报告数据可导出');return;}
+  const data={
+    exportTime:new Date().toISOString(),
+    hitCount:lastReport.hitCount,
+    totalFrames:recordedFrames.length,
+    totalDistM:Math.round(totalDistM*100)/100,
+    frames:recordedFrames.map(f=>({
+      time_ms:Math.round(f.ts),
+      rElbowAngle:f.rElbowAngle,
+      lElbowAngle:f.lElbowAngle,
+      rWristSpd:f.rWristSpd,
+      torsionAngle:f.torsionAngle,
+      rKneeAngle:f.rKneeAngle
+    })),
+    hits:hits.map(h=>({frameIdx:h.idx,speed:h.speed,timestamp_ms:Math.round(h.timestamp)}))
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='badminton-hit-'+Date.now()+'.json';a.click();URL.revokeObjectURL(a.href);
+}
+
+// ============ 重置 ============
+function resetAll(){
+  stopRecordingInternal();resetTracking();trackBadge.classList.remove('on');
+  recordedFrames=[];hitCount=0;hits=[];screenshots=[];wristHistory=[];hitInProgress=false;hitPeakSpeed=0;
+  hipTrack=[];totalDistPx=0;totalDistM=0;startHipPos=null;maxSpanPx=0;
+  ringBuffer=[];ringBufIdx=0;ringBufFull=false;hitLockCountdown=0;currentClipFrames=[];lastReport=null;
+  recTimer.textContent='00:00';hitCountLive.textContent='0';distLive.textContent='0m';
+  resultPanel.classList.remove('show');btnExport.style.display='none';btnExport.disabled=true;
+  btnRec.textContent='🔴 开始录制';
+  if(state===STATE.READY||state===STATE.RECORDING||state===STATE.RESULT){btnRec.disabled=false;btnCam.disabled=false;btnTrack.disabled=false;}
+  document.getElementById('hitCntBar').textContent='0';document.getElementById('hitCntBar').className='val neut';
+  document.getElementById('distBar').textContent='0m';
+  resetLiveUI();
+  if(state!==STATE.IDLE)state=STATE.READY;
+  document.getElementById('statusLabel').textContent='就绪';document.getElementById('statusLabel').className='val good';
+}
+
+window.toggleCamera=toggleCamera;window.toggleRecording=toggleRecording;window.toggleTracking=toggleTracking;window.resetAll=resetAll;window.exportData=exportData;
+console.log('🏸 羽毛球AI教练已就绪：双色骨架 | 多关节角度 | 击球检测(合速度) | 环形缓冲3s+3s | 动作分类 | 诊断 | 练习推荐');
+})();
+</script>
+</body>
+</html>
