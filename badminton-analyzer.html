@@ -133,6 +133,7 @@ footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bo
   <button id="btnTrack" class="btn btn-track" onclick="toggleTracking()" disabled>🎥 追踪模式</button>
   <button id="btnReset" class="btn btn-reset" onclick="resetAll()">↺ 重置</button>
   <button id="btn3D" class="btn btn-export" onclick="analyze3D()" disabled style="display:none;">🧬 3D 分析</button>
+  <button id="btn3D" class="btn btn-export" onclick="analyze3D()" disabled style="display:none;">🧬 3D分析</button>
   <button id="btnExport" class="btn btn-export" onclick="exportData()" disabled style="display:none;">📥 导出数据</button>
 </div>
 
@@ -140,11 +141,14 @@ footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bo
 <div id="status3D" style="width:100%;max-width:720px;text-align:center;padding:8px;color:#f97316;font-size:0.85rem;display:none;"></div>
 
 <div class="live-bar">
-  <div class="live-card"><div class="lbl">右肘角度</div><div class="val neut" id="rElbow">--°</div></div>
+  <div class="live-card"><div class="lbl">右肘 2D</div><div class="val neut" id="rElbow">--°</div></div>
+  <div class="live-card" style="border-color:#f97316;"><div class="lbl">右肘 3D 🧬</div><div class="val neut" id="rElbow3D">--°</div></div>
   <div class="live-card"><div class="lbl">右腕速度</div><div class="val neut" id="rWristSpd">--</div></div>
-  <div class="live-card"><div class="lbl">左肘角度</div><div class="val neut" id="lElbow">--°</div></div>
-  <div class="live-card"><div class="lbl">扭转角</div><div class="val neut" id="torsion">--°</div></div>
-  <div class="live-card"><div class="lbl">右膝角度</div><div class="val neut" id="rKnee">--°</div></div>
+  <div class="live-card"><div class="lbl">左肘 2D</div><div class="val neut" id="lElbow">--°</div></div>
+  <div class="live-card"><div class="lbl">扭转 2D</div><div class="val neut" id="torsion">--°</div></div>
+  <div class="live-card" style="border-color:#f97316;"><div class="lbl">扭转 3D 🧬</div><div class="val neut" id="torsion3D">--°</div></div>
+  <div class="live-card"><div class="lbl">右膝 2D</div><div class="val neut" id="rKnee">--°</div></div>
+  <div class="live-card" style="border-color:#f97316;"><div class="lbl">右膝 3D 🧬</div><div class="val neut" id="rKnee3D">--°</div></div>
   <div class="live-card"><div class="lbl">击球次数</div><div class="val gold" id="hitCntBar">0</div></div>
   <div class="live-card"><div class="lbl">跑动距离</div><div class="val blue" id="distBar">0m</div></div>
   <div class="live-card"><div class="lbl">状态</div><div class="val neut" id="statusLabel">待启动</div></div>
@@ -218,7 +222,7 @@ footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bo
 <script>
 (function(){
 const videoEl=document.getElementById('video'),canvasEl=document.getElementById('canvas'),ctx=canvasEl.getContext('2d');
-const btnCam=document.getElementById('btnCam'),btnRec=document.getElementById('btnRec'),btnTrack=document.getElementById('btnTrack'),btnReset=document.getElementById('btnReset'),btnExport=document.getElementById('btnExport');
+const btnCam=document.getElementById('btnCam'),btnRec=document.getElementById('btnRec'),btnTrack=document.getElementById('btnTrack'),btnReset=document.getElementById('btnReset'),btnExport=document.getElementById('btnExport'),btn3D=document.getElementById('btn3D');
 const resultPanel=document.getElementById('resultPanel'),recInd=document.getElementById('recInd'),recTimer=document.getElementById('recTimer');
 const hitBadge=document.getElementById('hitBadge'),hitCountLive=document.getElementById('hitCountLive');
 const trackBadge=document.getElementById('trackBadge'),distLive=document.getElementById('distLive');
@@ -501,7 +505,8 @@ function getPreHitFrames(n){
 }
 
 // ============ Pose 回调 ============
-function onPoseResults(r){lastResults=r;}
+let lastWorldLm=null; // MediaPipe worldLandmarks (真实3D坐标，米)
+function onPoseResults(r){lastResults=r;if(r.poseWorldLandmarks)lastWorldLm=r.poseWorldLandmarks;}
 
 // ============ 骨架绘制（双色系：持拍手暖色、非持拍手冷色） ============
 function drawSkeleton(landmarks){
@@ -606,10 +611,24 @@ function loop(){
     }
 
     if(recording){
+      // === 3D 世界坐标角度计算（使用 MediaPipe worldLandmarks，单位：米）===
+      let rElbow3D=null,lElbow3D=null,rKnee3D=null,torsion3D=null;
+      if(lastWorldLm){
+        const wlm=lastWorldLm;
+        if(wlm[12]&&wlm[14]&&wlm[16]&&wlm[12].visibility>0.5&&wlm[14].visibility>0.5&&wlm[16].visibility>0.5)
+          rElbow3D=calcAngle(wlm[12],wlm[14],wlm[16]);
+        if(wlm[11]&&wlm[13]&&wlm[15]&&wlm[11].visibility>0.5&&wlm[13].visibility>0.5&&wlm[15].visibility>0.5)
+          lElbow3D=calcAngle(wlm[11],wlm[13],wlm[15]);
+        if(wlm[24]&&wlm[26]&&wlm[28]&&wlm[24].visibility>0.5&&wlm[26].visibility>0.5&&wlm[28].visibility>0.5)
+          rKnee3D=calcAngle(wlm[24],wlm[26],wlm[28]);
+        torsion3D=calcTorsionAngle(wlm);
+      }
+
       const frameData={
         ts:now-recStartTime,
         landmarks:lm.map(p=>({x:p.x,y:p.y,z:p.z||0,visibility:p.visibility})),
         rElbowAngle,lElbowAngle,rKneeAngle,torsionAngle,
+        rElbow3D,lElbow3D,rKnee3D,torsion3D,
         tiltAngle:tiltData?tiltData.angle:null,tiltForward:tiltData?tiltData.forward:null,
         rWristSpd,
         hipX:(lm[23]&&lm[24])?(lm[23].x+lm[24].x)/2:null,
@@ -666,6 +685,31 @@ function updateLiveUI(rElbow,lElbow,rWristSpd,torsion,rKnee){
   t.className='val '+(torsion!==null?(torsion>25?'good':'neut'):'neut');
   k.textContent=rKnee!==null?Math.round(rKnee)+'°':'--°';
   k.className='val '+(rKnee!==null?(rKnee<120?'good':'neut'):'neut');
+
+  // 更新 3D 角度（来自 worldLandmarks）
+  if(lastWorldLm){
+    const w=lastWorldLm;
+    let rE3=null,lE3=null,t3=null,rK3=null;
+    if(w[12]&&w[14]&&w[16]&&w[12].visibility>0.5&&w[14].visibility>0.5&&w[16].visibility>0.5)
+      rE3=calcAngle(w[12],w[14],w[16]);
+    if(w[11]&&w[13]&&w[15]&&w[11].visibility>0.5&&w[13].visibility>0.5&&w[15].visibility>0.5)
+      lE3=calcAngle(w[11],w[13],w[15]);
+    t3=calcTorsionAngle(w);
+    if(w[24]&&w[26]&&w[28]&&w[24].visibility>0.5&&w[26].visibility>0.5&&w[28].visibility>0.5)
+      rK3=calcAngle(w[24],w[26],w[28]);
+
+    const eR3=document.getElementById('rElbow3D');
+    eR3.textContent=rE3!==null?Math.round(rE3)+'°':'--°';
+    eR3.className='val '+(rE3!==null?(rE3<120?'bad':'good'):'neut');
+
+    const t3d=document.getElementById('torsion3D');
+    t3d.textContent=t3!==null?Math.round(t3)+'°':'--°';
+    t3d.className='val '+(t3!==null?(t3>25?'good':'neut'):'neut');
+
+    const rk3d=document.getElementById('rKnee3D');
+    rk3d.textContent=rK3!==null?Math.round(rK3)+'°':'--°';
+    rk3d.className='val '+(rK3!==null?(rK3<120?'good':'neut'):'neut');
+  }
 }
 
 // ============ 摄像头 ============
@@ -706,7 +750,7 @@ function stopCamera(){
   lastResults=null;poseInstance=null;state=STATE.IDLE;
   btnCam.textContent='📷 打开摄像头';btnCam.className='btn btn-cam';btnCam.disabled=false;
   btnRec.textContent='🔴 开始录制';btnRec.disabled=true;btnTrack.disabled=true;
-  btnExport.style.display='none';btnExport.disabled=true;
+  btnExport.style.display='none';btnExport.disabled=true;btn3D.style.display='none';btn3D.disabled=true;
   resetLiveUI();
 }
 
@@ -762,7 +806,7 @@ function stopAndAnalyze(){
   const report=analyze(recordedFrames);
   showReport(report,recordedFrames);
 
-  state=STATE.RESULT;btnExport.style.display='inline-block';btnExport.disabled=false;
+  state=STATE.RESULT;btnExport.style.display='inline-block';btnExport.disabled=false;btn3D.style.display='inline-block';btn3D.disabled=false;
   document.getElementById('btn3D').style.display='inline-block';document.getElementById('btn3D').disabled=false;
   document.getElementById('statusLabel').textContent='分析完成';document.getElementById('statusLabel').className='val good';
 }
@@ -1217,6 +1261,65 @@ async function analyze3D(){
   }
 }
 
+// ============ SAM 3D Body 分析 ============
+const SAM3D_SERVER='http://localhost:8765';
+
+async function analyze3D(){
+  if(screenshots.length===0){alert('没有击球关键帧可分析');return;}
+  btn3D.disabled=true;btn3D.textContent='🧬 分析中...';
+
+  const box3D=document.getElementById('analysis3DBox');
+  const content3D=document.getElementById('analysis3DContent');
+  box3D.style.display='block';
+  content3D.innerHTML='<p style="color:#888;">🧬 正在通过 SAM 3D Body 进行精确 3D 分析...（每帧约需 60 秒）</p><div style="display:flex;gap:4px;margin-top:8px;" id="progress3D"></div>';
+
+  const results=[];
+  for(let i=0;i<screenshots.length;i++){
+    const ss=screenshots[i];
+    document.getElementById('progress3D').innerHTML+='<span style="font-size:0.7rem;color:#f97316;">⏳ 击球'+(i+1)+'</span> ';
+
+    try{
+      const resp=await fetch(SAM3D_SERVER+'/analyze',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({image:ss.dataUrl})
+      });
+      const data=await resp.json();
+      if(data.status==='ok'){
+        results.push({hitNum:i+1,...data});
+      }else{
+        results.push({hitNum:i+1,error:data.error||'Unknown error'});
+      }
+    }catch(e){
+      results.push({hitNum:i+1,error:'❌ 无法连接 3D 服务器('+SAM3D_SERVER+')。请确保服务器已启动：conda run -n sam3d python badminton_3d_server.py'});
+    }
+  }
+
+  // 显示结果
+  let html='';
+  for(const r of results){
+    if(r.error){
+      html+='<div style="background:#2a1515;border-radius:8px;padding:12px;margin-bottom:8px;"><b>击球 #'+r.hitNum+'</b>: '+r.error+'</div>';
+    }else{
+      const a=r.angles;
+      html+='<div style="background:#1a2a1a;border-radius:8px;padding:12px;margin-bottom:8px;border-left:3px solid #f97316;">';
+      html+='<b>🏸 击球 #'+r.hitNum+'</b> | ⏱ '+r.elapsed+'s | 评分: <b style="color:'+(r.grade==='great'?'#34d399':r.grade==='ok'?'#fbbf24':'#f87171')+';">'+r.score+'分 ('+r.grade+')</b>';
+      html+='<table style="width:100%;margin-top:8px;font-size:0.75rem;color:#aaa;">';
+      html+='<tr><td>右肘 3D</td><td style="color:'+(a.r_elbow>150?'#34d399':'#f87171')+';">'+(a.r_elbow||'--')+'°</td><td>右肩外展</td><td>'+(a.r_shoulder_up||'--')+'°</td></tr>';
+      html+='<tr><td>左肘 3D</td><td>'+(a.l_elbow||'--')+'°</td><td>左手抬高</td><td>'+(a.l_shoulder_up||'--')+'°</td></tr>';
+      html+='<tr><td>右膝 3D</td><td style="color:'+(a.r_knee<130?'#34d399':'#f87171')+';">'+(a.r_knee||'--')+'°</td><td>肩髋扭转</td><td style="color:'+(a.torso_twist>25?'#34d399':'#f87171')+';">'+(a.torso_twist||'--')+'°</td></tr>';
+      html+='<tr><td>身体倾斜</td><td>'+(a.body_tilt||'--')+'°</td><td>过顶击球</td><td>'+(a.is_overhead?'✅':'否')+'</td></tr>';
+      html+='</table>';
+      html+='<div style="margin-top:6px;font-size:0.7rem;">';
+      for(const f of r.feedback){
+        html+='<span style="color:'+(f.l==='good'?'#34d399':f.l==='warn'?'#fbbf24':'#f87171')+';">• '+f.m+'</span><br>';
+      }
+      html+='</div></div>';
+    }
+  }
+  content3D.innerHTML=html;
+  btn3D.disabled=false;btn3D.textContent='🧬 3D分析';
+}
+
 // ============ 导出 ============
 function exportData(){
   if(!lastReport){console.warn('无报告数据可导出');return;}
@@ -1246,7 +1349,7 @@ function resetAll(){
   hipTrack=[];totalDistPx=0;totalDistM=0;startHipPos=null;maxSpanPx=0;
   ringBuffer=[];ringBufIdx=0;ringBufFull=false;hitLockCountdown=0;currentClipFrames=[];lastReport=null;
   recTimer.textContent='00:00';hitCountLive.textContent='0';distLive.textContent='0m';
-  resultPanel.classList.remove('show');btnExport.style.display='none';btnExport.disabled=true;
+  resultPanel.classList.remove('show');btnExport.style.display='none';btnExport.disabled=true;btn3D.style.display='none';btn3D.disabled=true;
   btnRec.textContent='🔴 开始录制';
   if(state===STATE.READY||state===STATE.RECORDING||state===STATE.RESULT){btnRec.disabled=false;btnCam.disabled=false;btnTrack.disabled=false;}
   document.getElementById('hitCntBar').textContent='0';document.getElementById('hitCntBar').className='val neut';
@@ -1256,7 +1359,7 @@ function resetAll(){
   document.getElementById('statusLabel').textContent='就绪';document.getElementById('statusLabel').className='val good';
 }
 
-window.toggleCamera=toggleCamera;window.toggleRecording=toggleRecording;window.toggleTracking=toggleTracking;window.resetAll=resetAll;window.exportData=exportData;
+window.toggleCamera=toggleCamera;window.toggleRecording=toggleRecording;window.toggleTracking=toggleTracking;window.resetAll=resetAll;window.exportData=exportData;window.analyze3D=analyze3D;
 console.log('🏸 羽毛球AI教练已就绪：双色骨架 | 多关节角度 | 击球检测(合速度) | 环形缓冲3s+3s | 动作分类 | 诊断 | 练习推荐');
 })();
 </script>

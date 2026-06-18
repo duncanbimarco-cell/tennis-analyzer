@@ -1,332 +1,144 @@
 #!/usr/bin/env python3
 """
-羽毛球 3D 动作分析服务器
-使用 SAM 3D Body 对击球关键帧进行精确 3D 人体网格重建
-
-启动方式:
-    python badminton_3d_server.py
-
-API:
-    POST /analyze  - 上传击球关键帧图片，返回 3D 分析结果
-    GET  /health    - 健康检查
+SAM 3D Body 羽毛球动作分析服务器
+接受击球关键帧图片，返回 3D 全身关节角度分析
 """
+import sys, os, json, base64, time, traceback
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'sam-3d-body'))
 
-import os
-import sys
-import json
-import base64
-import io
-import time
-import traceback
-from pathlib import Path
-
-import cv2
-import numpy as np
-
-# 添加 SAM 3D Body 到 Python path
-SAM3D_PATH = Path(__file__).parent / "sam-3d-body"
-if SAM3D_PATH.exists():
-    sys.path.insert(0, str(SAM3D_PATH))
-
-CHECKPOINT_DIR = SAM3D_PATH / "checkpoints" / "sam-3d-body-dinov3"
-
+import torch, cv2, numpy as np
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# 全局模型实例（懒加载）
-estimator = None
-device = None
-MODEL_LOADED = False
+# ============ 加载模型 ============
+device = torch.device('cpu')
+print("Loading SAM 3D Body model...")
+from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
+
+CKPT = os.path.join(os.path.dirname(__file__), 'sam-3d-body', 'checkpoints', 'sam-3d-body-dinov3')
+model, model_cfg = load_sam_3d_body(
+    os.path.join(CKPT, 'model.ckpt'), device=device,
+    mhr_path=os.path.join(CKPT, 'assets', 'mhr_model.pt')
+)
+estimator = SAM3DBodyEstimator(sam_3d_body_model=model, model_cfg=model_cfg)
+print("✅ SAM 3D Body loaded!")
+
+# ============ MHR70 关键点映射 ============
+KP = {  # keypoint_name → index
+    'pelvis':0, 'l_hip':1, 'r_hip':2, 'l_knee':4, 'r_knee':5,
+    'l_ankle':7, 'r_ankle':8, 'neck':12, 'l_shoulder':16, 'r_shoulder':17,
+    'l_elbow':18, 'r_elbow':19, 'l_wrist':20, 'r_wrist':21,
+    'r_mid':29,  # right middle finger base
+}
 
 
-def get_device():
-    """获取最佳可用设备：MPS > CUDA > CPU"""
-    import torch
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    elif torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+def angle_3d(a, b, c):
+    ba, bc = a - b, c - b
+    m = np.linalg.norm(ba) * np.linalg.norm(bc)
+    return float(np.degrees(np.arccos(np.clip(np.dot(ba, bc) / max(m, 1e-8), -1, 1)))) if m > 1e-8 else None
 
 
-def load_model():
-    """加载 SAM 3D Body 模型（首次调用时加载）"""
-    global estimator, device, MODEL_LOADED
-
-    if MODEL_LOADED:
-        return True
-
-    try:
-        from sam_3d_body import load_sam_3d_body, SAM3DBodyEstimator
-
-        device = get_device()
-        print(f"[SAM3D] 使用设备: {device}")
-
-        checkpoint_path = CHECKPOINT_DIR / "model.ckpt"
-        mhr_path = CHECKPOINT_DIR / "assets" / "mhr_model.pt"
-
-        if not checkpoint_path.exists():
-            print(f"[SAM3D] ⚠️ 模型文件不存在: {checkpoint_path}")
-            print(f"[SAM3D] 请先下载模型: hf download facebook/sam-3d-body-dinov3 --local-dir {CHECKPOINT_DIR}")
-            return False
-
-        print(f"[SAM3D] 加载模型 checkpoint: {checkpoint_path}")
-        model, model_cfg = load_sam_3d_body(
-            str(checkpoint_path),
-            device=device,
-            mhr_path=str(mhr_path),
-        )
-
-        # 创建 estimator（不包含 detector/segmentor，用 MediaPipe 替代）
-        estimator = SAM3DBodyEstimator(
-            sam_3d_body_model=model,
-            model_cfg=model_cfg,
-            human_detector=None,   # 用前端 MediaPipe 的 bbox 替代
-            human_segmentor=None,
-            fov_estimator=None,
-        )
-
-        MODEL_LOADED = True
-        print("[SAM3D] ✅ 模型加载成功")
-        return True
-
-    except Exception as e:
-        print(f"[SAM3D] ❌ 模型加载失败: {e}")
-        traceback.print_exc()
-        return False
+def analyze(k3d):
+    """3D 羽毛球动作分析"""
+    a = {}
+    # 右臂
+    a['r_elbow'] = angle_3d(k3d[KP['r_shoulder']], k3d[KP['r_elbow']], k3d[KP['r_wrist']])
+    a['r_shoulder_up'] = angle_3d(k3d[KP['r_hip']], k3d[KP['r_shoulder']], k3d[KP['r_elbow']])
+    a['r_wrist'] = angle_3d(k3d[KP['r_elbow']], k3d[KP['r_wrist']], k3d[KP['r_mid']])
+    # 左臂
+    a['l_elbow'] = angle_3d(k3d[KP['l_shoulder']], k3d[KP['l_elbow']], k3d[KP['l_wrist']])
+    a['l_shoulder_up'] = angle_3d(k3d[KP['l_hip']], k3d[KP['l_shoulder']], k3d[KP['l_elbow']])
+    # 下肢
+    a['r_knee'] = angle_3d(k3d[KP['r_hip']], k3d[KP['r_knee']], k3d[KP['r_ankle']])
+    a['l_knee'] = angle_3d(k3d[KP['l_hip']], k3d[KP['l_knee']], k3d[KP['l_ankle']])
+    # 肩髋扭转
+    sv = k3d[KP['r_shoulder']] - k3d[KP['l_shoulder']]
+    hv = k3d[KP['r_hip']] - k3d[KP['l_hip']]
+    sh, hh = np.array([sv[0], sv[2]]), np.array([hv[0], hv[2]])
+    d, m = np.dot(sh, hh), np.linalg.norm(sh) * np.linalg.norm(hh)
+    a['torso_twist'] = float(np.degrees(np.arccos(np.clip(d / max(m, 1e-8), -1, 1))))
+    # 身体倾斜
+    sm = (k3d[KP['r_shoulder']] + k3d[KP['l_shoulder']]) / 2
+    hm = (k3d[KP['r_hip']] + k3d[KP['l_hip']]) / 2
+    tv = sm - hm
+    d2, m2 = np.dot(tv, np.array([0, 1, 0])), np.linalg.norm(tv)
+    a['body_tilt'] = float(np.degrees(np.arccos(np.clip(d2 / max(m2, 1e-8), -1, 1))))
+    a['is_overhead'] = float(k3d[KP['r_wrist']][1] > k3d[KP['r_shoulder']][1])
+    return {k: round(v, 1) if v is not None else None for k, v in a.items()}
 
 
-def extract_key_angles(outputs):
-    """
-    从 SAM 3D Body 输出中提取羽毛球关键角度。
+def feedback(a):
+    """诊断"""
+    fb, s = [], 100
+    if (v := a.get('r_elbow')) and v < 120:
+        fb.append({'l':'bad','m':f'右肘弯曲严重({v}°)，力量传导效率低'}); s -= 25
+    elif v and v < 150:
+        fb.append({'l':'warn','m':f'右肘未完全伸展({v}°)，建议锁肘'}); s -= 10
+    elif v:
+        fb.append({'l':'good','m':f'右肘伸展良好({v}°)'})
 
-    SAM 3D Body 使用 MHR (Momentum Human Rig) 骨骼，关键关节索引：
-    - 右肩: 2, 右肘: 3, 右腕: 4
-    - 左肩: 5, 左肘: 6, 左腕: 7
-    - 右髋: 9, 右膝: 10, 右踝: 11
-    - 左髋: 12, 左膝: 13, 左踝: 14
-    （具体索引取决于 MHR 骨骼定义，此处为示例）
-    """
-    try:
-        # 获取 3D 关节位置
-        if hasattr(outputs, 'pred_vertices'):
-            joints_3d = outputs.pred_joints_3d  # (N_joints, 3)
-        elif isinstance(outputs, dict) and 'joints_3d' in outputs:
-            joints_3d = outputs['joints_3d']
-        elif isinstance(outputs, dict) and 'pred_keypoints_3d' in outputs:
-            joints_3d = outputs['pred_keypoints_3d']
-        else:
-            # 尝试直接获取
-            joints_3d = None
+    if (v := a.get('torso_twist')) and v < 15:
+        fb.append({'l':'bad','m':f'转体不足({v}°)，缺乏核心发力'}); s -= 15
+    elif v and v < 30:
+        fb.append({'l':'warn','m':f'转体偏小({v}°)，加大侧身'}); s -= 5
+    elif v:
+        fb.append({'l':'good','m':f'转体充分({v}°)'})
 
-        if joints_3d is None:
-            return {"error": "无法提取 3D 关节", "available_keys": str(dir(outputs))}
+    if (v := a.get('l_shoulder_up')) and v < 60:
+        fb.append({'l':'bad','m':'非持拍手未抬起'}); s -= 10
+    elif v:
+        fb.append({'l':'good','m':'非持拍手抬起，姿势标准'})
 
-        joints = joints_3d[0] if len(joints_3d.shape) == 3 else joints_3d  # (N, 3)
+    if (v := a.get('r_knee')) and v > 150:
+        fb.append({'l':'warn','m':f'膝关节偏直({v}°)，缺下肢蓄力'}); s -= 5
 
-        def angle_3d(a, b, c):
-            """计算 3D 空间中三点夹角"""
-            ba = a - b
-            bc = c - b
-            cos = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-8)
-            return float(np.degrees(np.arccos(np.clip(cos, -1, 1))))
+    if a.get('is_overhead'):
+        fb.append({'l':'good','m':'手腕高于肩，过顶击球'})
 
-        # MHR 骨骼常用索引（需根据实际模型确认）
-        # 这里使用常见的 SMPL/Human36M 映射
-        angles = {}
-
-        # 持拍手（右）：肩→肘→腕
-        if joints.shape[0] > 4:
-            angles["r_elbow_3d"] = round(angle_3d(joints[2], joints[3], joints[4]), 1)
-        # 非持拍手（左）
-        if joints.shape[0] > 7:
-            angles["l_elbow_3d"] = round(angle_3d(joints[5], joints[6], joints[7]), 1)
-        # 右膝：髋→膝→踝
-        if joints.shape[0] > 11:
-            angles["r_knee_3d"] = round(angle_3d(joints[9], joints[10], joints[11]), 1)
-        # 左膝
-        if joints.shape[0] > 14:
-            angles["l_knee_3d"] = round(angle_3d(joints[12], joints[13], joints[14]), 1)
-
-        # 肩髋扭转：双肩中点 vs 双髋中点
-        if joints.shape[0] > 14:
-            sh_mid = (joints[2] + joints[5]) / 2
-            hip_mid = (joints[9] + joints[12]) / 2
-            # 水平面投影的扭转角
-            sh_vec = joints[2] - joints[5]
-            hip_vec = joints[9] - joints[12]
-            sh_vec_h = np.array([sh_vec[0], 0, sh_vec[2]])
-            hip_vec_h = np.array([hip_vec[0], 0, hip_vec[2]])
-            cos_t = np.dot(sh_vec_h, hip_vec_h) / (np.linalg.norm(sh_vec_h) * np.linalg.norm(hip_vec_h) + 1e-8)
-            angles["torsion_3d"] = round(float(np.degrees(np.arccos(np.clip(cos_t, -1, 1)))), 1)
-
-            # 身体倾斜
-            torso = sh_mid - hip_mid
-            vertical = np.array([0, 1, 0])
-            cos_tilt = np.dot(torso, vertical) / (np.linalg.norm(torso) + 1e-8)
-            angles["tilt_3d"] = round(float(np.degrees(np.arccos(np.clip(cos_tilt, -1, 1)))), 1)
-
-        # 手腕高度（用于判断过顶/低手）
-        if joints.shape[0] > 4:
-            angles["r_wrist_height"] = round(float(joints[4][1]), 3)  # Y坐标
-            angles["r_shoulder_height"] = round(float(joints[2][1]), 3)
-
-        return angles
-
-    except Exception as e:
-        return {"error": str(e), "traceback": traceback.format_exc()}
-
-
-# ==================== Flask API ====================
-
-@app.route('/health', methods=['GET'])
-def health():
-    """健康检查"""
-    return jsonify({
-        "status": "ok",
-        "model_loaded": MODEL_LOADED,
-        "device": str(device) if device else "not initialized",
-    })
+    g = 'great' if s >= 80 else 'ok' if s >= 55 else 'poor'
+    return {'score': max(0, min(100, s)), 'grade': g, 'feedback': fb}
 
 
 @app.route('/analyze', methods=['POST'])
-def analyze():
-    """
-    分析击球关键帧
-
-    请求体 JSON:
-    {
-        "images": ["base64_image_1", "base64_image_2", ...],
-        "bboxes": [[x1,y1,x2,y2], ...],  // 可选，人体边界框
-        "return_mesh": false  // 是否返回完整网格（数据量大）
-    }
-
-    返回:
-    {
-        "success": true,
-        "results": [
-            {
-                "angles": {  // 3D 角度
-                    "r_elbow_3d": 165.3,
-                    "l_elbow_3d": 120.5,
-                    "torsion_3d": 35.2,
-                    ...
-                },
-                "joints_3d": [...],  // 3D 关节坐标（可选）
-                "inference_time_ms": 123
-            },
-            ...
-        ]
-    }
-    """
-    if not MODEL_LOADED:
-        ok = load_model()
-        if not ok:
-            return jsonify({
-                "success": False,
-                "error": "模型未加载。请先下载 model checkpoint 到 " + str(CHECKPOINT_DIR),
-                "hint": "hf download facebook/sam-3d-body-dinov3 --local-dir " + str(CHECKPOINT_DIR),
-            }), 503
-
+def analyze_route():
     try:
-        data = request.get_json(force=True)
-        images_b64 = data.get("images", [])
-        bboxes = data.get("bboxes", [])
-        return_mesh = data.get("return_mesh", False)
+        d = request.get_json()
+        if not d or 'image' not in d:
+            return jsonify({'error': 'No image'}), 400
+        b64 = d['image']
+        if ',' in b64:
+            b64 = b64.split(',', 1)[1]
+        img = cv2.imdecode(np.frombuffer(base64.b64decode(b64), np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            return jsonify({'error': 'Bad image'}), 400
 
-        if not images_b64:
-            return jsonify({"success": False, "error": "缺少 images 字段"}), 400
+        t0 = time.time()
+        out = estimator.process_one_image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        elapsed = time.time() - t0
 
-        results = []
+        r = out[0] if isinstance(out, list) else out
+        k3d = r['pred_keypoints_3d'].cpu().numpy() if hasattr(r['pred_keypoints_3d'], 'cpu') else r['pred_keypoints_3d']
 
-        for i, img_b64 in enumerate(images_b64):
-            # Base64 -> numpy image
-            if img_b64.startswith("data:"):
-                img_b64 = img_b64.split(",", 1)[1]
-            img_bytes = base64.b64decode(img_b64)
-            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-
-            if img is None:
-                results.append({"error": f"图片 {i} 解码失败"})
-                continue
-
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-            # 使用指定的 bbox 或默认全图
-            bbox = None
-            if i < len(bboxes) and bboxes[i]:
-                bbox = bboxes[i]
-
-            t0 = time.time()
-
-            # SAM 3D Body 推理
-            outputs = estimator.process_one_image(
-                img_rgb,
-                bbox_thr=0.8,
-                use_mask=False,
-            )
-
-            inference_time = round((time.time() - t0) * 1000)
-
-            # 提取角度
-            angles = extract_key_angles(outputs)
-
-            result = {
-                "angles": angles,
-                "inference_time_ms": inference_time,
-            }
-
-            # 可选：返回 3D 关节
-            if return_mesh and hasattr(outputs, 'pred_joints_3d'):
-                joints = outputs.pred_joints_3d
-                if len(joints.shape) == 3:
-                    joints = joints[0]
-                result["joints_3d"] = joints.tolist()
-
-            results.append(result)
+        ang = analyze(k3d)
+        fb = feedback(ang)
 
         return jsonify({
-            "success": True,
-            "results": results,
-            "device": str(device),
+            'status': 'ok', 'elapsed': round(elapsed, 1),
+            'angles': ang, 'score': fb['score'],
+            'grade': fb['grade'], 'feedback': fb['feedback']
         })
-
     except Exception as e:
         traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-        }), 500
+        return jsonify({'error': str(e)}), 500
 
 
-def main():
-    print("=" * 60)
-    print("🏸 羽毛球 3D 动作分析服务器 (SAM 3D Body)")
-    print("=" * 60)
-    print(f"Python: {sys.version}")
-    print(f"模型路径: {CHECKPOINT_DIR}")
-
-    # 检查模型文件
-    ckpt = CHECKPOINT_DIR / "model.ckpt"
-    if ckpt.exists():
-        print(f"✅ 模型文件存在: {ckpt}")
-        print("正在预加载模型...")
-        load_model()
-    else:
-        print(f"⚠️ 模型文件不存在: {ckpt}")
-        print(f"请运行以下命令下载模型:")
-        print(f"  hf download facebook/sam-3d-body-dinov3 --local-dir {CHECKPOINT_DIR}")
-        print(f"服务器将以无模型模式启动（/analyze 不可用，/health 可用）")
-
-    print(f"\n📡 服务器启动: http://localhost:8765")
-    print(f"   GET  /health   - 健康检查")
-    print(f"   POST /analyze  - 3D 分析击球帧")
-
-    app.run(host="0.0.0.0", port=8765, debug=False)
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    print("\n🏸 SAM 3D Body 羽毛球分析服务器")
+    print("POST http://localhost:8765/analyze\n")
+    app.run(host='0.0.0.0', port=8765, debug=False)
