@@ -132,7 +132,6 @@ footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bo
   <button id="btnRec" class="btn btn-rec" onclick="toggleRecording()" disabled>🔴 开始录制</button>
   <button id="btnTrack" class="btn btn-track" onclick="toggleTracking()" disabled>🎥 追踪模式</button>
   <button id="btnReset" class="btn btn-reset" onclick="resetAll()">↺ 重置</button>
-  <button id="btn3D" class="btn btn-export" onclick="analyze3D()" disabled style="display:none;">🧬 3D 分析</button>
   <button id="btn3D" class="btn btn-export" onclick="analyze3D()" disabled style="display:none;">🧬 3D分析</button>
   <button id="btnExport" class="btn btn-export" onclick="exportData()" disabled style="display:none;">📥 导出数据</button>
 </div>
@@ -846,7 +845,6 @@ function stopAndAnalyze(){
   document.getElementById('btn3D').style.display='none';document.getElementById('btn3D').disabled=true;
   document.getElementById('statusLabel').textContent='分析中…';document.getElementById('statusLabel').className='val neut';
   resetTracking();trackBadge.classList.remove('on');
-  document.getElementById('status3D').style.display='none';
   document.getElementById('analysis3DBox').style.display='none';
 
   if(recordedFrames.length<10){document.getElementById('statusLabel').textContent='数据不足';document.getElementById('statusLabel').className='val bad';return;}
@@ -863,7 +861,6 @@ function stopAndAnalyze(){
   showReport(report,recordedFrames);
 
   state=STATE.RESULT;btnExport.style.display='inline-block';btnExport.disabled=false;btn3D.style.display='inline-block';btn3D.disabled=false;
-  document.getElementById('btn3D').style.display='inline-block';document.getElementById('btn3D').disabled=false;
   document.getElementById('statusLabel').textContent='分析完成';document.getElementById('statusLabel').className='val good';
 }
 
