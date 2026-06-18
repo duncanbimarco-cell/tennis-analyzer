@@ -1,0 +1,460 @@
+/* ==========================================
+   统计与视频复盘页 — 样式
+   ========================================== */
+
+/* ——— 页面基底 ——— */
+.page {
+  padding: 24rpx;
+  padding-bottom: 60rpx;
+  background-color: #f2f2f7;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+/* ——— 通用卡片 ——— */
+.card {
+  background-color: #fff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  margin-bottom: 28rpx;
+  box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.04);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24rpx;
+}
+
+.card-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #1c1c1e;
+}
+
+/* ==========================================
+   一、技术数据对比柱状图
+   ========================================== */
+
+/* 图例 */
+.legend {
+  display: flex;
+  gap: 24rpx;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 22rpx;
+  color: #8e8e93;
+}
+
+.legend-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 4rpx;
+}
+
+.legend-a {
+  background-color: #007AFF;
+}
+
+.legend-b {
+  background-color: #FF9500;
+}
+
+/* 柱状图主体 */
+.chart-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+/* 分类标签 */
+.chart-label {
+  width: 130rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #3a3a3c;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* 条形容器 */
+.bar-wrapper {
+  position: relative;
+  height: 40rpx;
+  border-radius: 10rpx;
+  background-color: #f0f0f5;
+  overflow: visible;
+  flex: 1;
+  min-width: 80rpx;
+}
+
+.bar {
+  height: 100%;
+  border-radius: 10rpx;
+  transition: width 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  min-width: 8rpx;
+}
+
+.bar-a {
+  background: linear-gradient(90deg, #007AFF, #5856D6);
+}
+
+.bar-b {
+  background: linear-gradient(90deg, #FF9500, #FF3B30);
+}
+
+/* 条上/后的数字 */
+.bar-count {
+  position: absolute;
+  right: -8rpx;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #1c1c1e;
+  min-width: 44rpx;
+  text-align: left;
+}
+
+.bar-count-a {
+  color: #007AFF;
+}
+
+.bar-count-b {
+  color: #FF9500;
+}
+
+/* 柱状图空状态 */
+.chart-empty {
+  text-align: center;
+  padding: 40rpx 0 16rpx;
+  color: #8e8e93;
+  font-size: 26rpx;
+}
+
+/* ==========================================
+   二、视频复盘区
+   ========================================== */
+
+/* 筛选标签 */
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.filter-tag {
+  padding: 14rpx 28rpx;
+  font-size: 26rpx;
+  color: #007AFF;
+  background-color: #ebf5ff;
+  border: 2rpx solid transparent;
+  border-radius: 40rpx;
+  transition: all 0.2s;
+}
+
+.filter-tag--active {
+  background-color: #007AFF;
+  color: #fff;
+  border-color: #007AFF;
+  font-weight: 600;
+}
+
+/* 视频空状态 */
+.video-empty {
+  text-align: center;
+  padding: 48rpx 20rpx;
+  color: #8e8e93;
+  font-size: 28rpx;
+}
+
+.video-empty-hint {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #c7c7cc;
+}
+
+/* ——— 播放器弹层 ——— */
+.player-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.65);
+}
+
+.player-card {
+  position: relative;
+  width: 690rpx;
+  max-height: 90vh;
+  background-color: #1c1c1e;
+  border-radius: 24rpx;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+}
+
+/* 播放器顶部栏 */
+.player-topbar {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 28rpx;
+  gap: 16rpx;
+}
+
+.player-title {
+  flex: 1;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #fff;
+}
+
+.player-progress {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.player-close {
+  width: 48rpx;
+  height: 48rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 28rpx;
+  margin-left: 8rpx;
+}
+
+/* 视频区域 */
+.player-video-wrap {
+  position: relative;
+  width: 100%;
+  height: 400rpx;
+  background-color: #000;
+}
+
+.player-video {
+  width: 100%;
+  height: 100%;
+}
+
+/* 播完蒙层 */
+.player-complete-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+}
+
+.complete-icon {
+  font-size: 56rpx;
+}
+
+.complete-text {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #fff;
+}
+
+.complete-btn {
+  margin-top: 12rpx;
+  padding: 16rpx 48rpx;
+  background-color: #007AFF;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 600;
+  border-radius: 40rpx;
+}
+
+/* 比分快照 & 信息 */
+.player-info {
+  padding: 20rpx 28rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  background-color: #2c2c2e;
+}
+
+.player-info-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.info-label {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.5);
+  width: 120rpx;
+  flex-shrink: 0;
+}
+
+.info-score {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #fff;
+}
+
+.info-time {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* 动作类型标签色 */
+.info-tag {
+  font-size: 24rpx;
+  color: #fff;
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+  font-weight: 600;
+}
+
+.info-tag--smash_score { background-color: #FF3B30; }
+.info-tag--net_score   { background-color: #34C759; }
+.info-tag--out_error   { background-color: #FF9500; }
+.info-tag--net_error   { background-color: #AF52DE; }
+
+/* 上/下一段导航 */
+.player-nav {
+  display: flex;
+  gap: 0;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-btn {
+  flex: 1;
+  text-align: center;
+  padding: 24rpx 0;
+  font-size: 28rpx;
+  color: #007AFF;
+  font-weight: 600;
+}
+
+.nav-btn:first-child {
+  border-right: 1rpx solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-btn--disabled {
+  color: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+}
+
+/* ——— 片段快捷列表 ——— */
+.clip-list {
+  margin-top: 12rpx;
+}
+
+.clip-list-title {
+  font-size: 26rpx;
+  color: #8e8e93;
+  margin-bottom: 16rpx;
+  display: block;
+}
+
+.clip-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 20rpx 16rpx;
+  border-radius: 12rpx;
+  margin-bottom: 10rpx;
+  background-color: #f9f9fb;
+  transition: background-color 0.2s;
+}
+
+.clip-item--active {
+  background-color: #ebf5ff;
+  border: 2rpx solid #007AFF;
+}
+
+.clip-index {
+  width: 44rpx;
+  height: 44rpx;
+  line-height: 44rpx;
+  text-align: center;
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #fff;
+  background-color: #007AFF;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.clip-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.clip-type {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #1c1c1e;
+}
+
+.clip-score {
+  font-size: 24rpx;
+  color: #8e8e93;
+}
+
+.clip-time {
+  font-size: 22rpx;
+  color: #c7c7cc;
+  flex-shrink: 0;
+}
+
+/* ——— 空页面 ——— */
+.empty-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #8e8e93;
+}
+
+.empty-icon {
+  font-size: 80rpx;
+  margin-bottom: 20rpx;
+}
+
+.empty-text {
+  font-size: 30rpx;
+}

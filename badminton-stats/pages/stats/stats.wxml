@@ -1,0 +1,189 @@
+<!-- 统计与视频复盘页 -->
+<view class="page" wx:if="{{match}}">
+
+  <!-- ========== 一、技术数据对比柱状图 ========== -->
+  <view class="card chart-card">
+    <view class="card-header">
+      <text class="card-title">📊 技术数据对比</text>
+      <view class="legend">
+        <view class="legend-item">
+          <view class="legend-dot legend-a"></view>
+          <text>{{playerAName}}</text>
+        </view>
+        <view class="legend-item">
+          <view class="legend-dot legend-b"></view>
+          <text>{{playerBName}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 柱状图主体 -->
+    <view class="chart-body">
+      <block wx:for="{{categories}}" wx:key="key" wx:for-item="cat">
+        <view class="chart-row">
+          <!-- 分类标签 -->
+          <text class="chart-label">{{cat.label}}</text>
+
+          <!-- 选手 A 的条 + 数字 -->
+          <view class="bar-wrapper bar-wrapper-a">
+            <view
+              class="bar bar-a"
+              style="width: {{statsA[cat.key] / maxStatValue * 100}}%;"
+            ></view>
+            <text class="bar-count bar-count-a">{{statsA[cat.key]}}</text>
+          </view>
+
+          <!-- 选手 B 的条 + 数字 -->
+          <view class="bar-wrapper bar-wrapper-b">
+            <view
+              class="bar bar-b"
+              style="width: {{statsB[cat.key] / maxStatValue * 100}}%;"
+            ></view>
+            <text class="bar-count bar-count-b">{{statsB[cat.key]}}</text>
+          </view>
+        </view>
+      </block>
+    </view>
+
+    <!-- 无数据提示 -->
+    <view wx:if="{{!hasLogs}}" class="chart-empty">
+      <text>暂无技术记录数据</text>
+    </view>
+  </view>
+
+  <!-- ========== 二、视频复盘区 ========== -->
+  <view class="card video-card">
+    <view class="card-header">
+      <text class="card-title">🎥 动作切片回放</text>
+    </view>
+
+    <!-- 筛选标签 -->
+    <view class="filter-tags">
+      <block wx:for="{{filters}}" wx:key="key" wx:for-item="f">
+        <view
+          class="filter-tag {{selectedFilter === f.key ? 'filter-tag--active' : ''}}"
+          data-key="{{f.key}}"
+          bindtap="onFilterTap"
+        >
+          <text>{{f.icon}} {{f.label}}</text>
+        </view>
+      </block>
+    </view>
+
+    <!-- 无视频提示 -->
+    <view wx:if="{{!hasLogs}}" class="video-empty">
+      <text>📭 本场比赛暂无视频日志</text>
+      <text class="video-empty-hint">在计分页中点击"杀球得分"或"失误"按钮时会自动录制</text>
+    </view>
+
+    <!-- 选择筛选后无结果 -->
+    <view wx:elif="{{selectedFilter && filteredLogs.length === 0}}" class="video-empty">
+      <text>该分类暂无视频片段</text>
+    </view>
+
+    <!-- 播放器弹层 -->
+    <view wx:if="{{!videoHidden && filteredLogs.length > 0}}" class="player-overlay">
+      <!-- 遮罩背景 -->
+      <view class="player-backdrop" bindtap="onCloseVideo"></view>
+
+      <!-- 播放器卡片 -->
+      <view class="player-card">
+        <!-- 顶部控制栏 -->
+        <view class="player-topbar">
+          <text class="player-title">{{filterLabel}}</text>
+          <text class="player-progress">{{currentClipNo}} / {{totalClips}}</text>
+          <view class="player-close" bindtap="onCloseVideo">
+            <text>✕</text>
+          </view>
+        </view>
+
+        <!-- 视频播放区 -->
+        <view class="player-video-wrap">
+          <video
+            id="statsVideo"
+            class="player-video"
+            src="{{videoSrc}}"
+            autoplay
+            controls
+            show-center-play-btn="{{false}}"
+            object-fit="contain"
+            bindended="onVideoEnded"
+            binderror="onVideoError"
+          ></video>
+
+          <!-- 播完遮罩 -->
+          <view wx:if="{{playbackComplete}}" class="player-complete-mask">
+            <text class="complete-icon">✅</text>
+            <text class="complete-text">全部播放完毕</text>
+            <view class="complete-btn" bindtap="onBackToFilter">
+              <text>返回列表</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 比分快照 & 时间 -->
+        <view class="player-info" wx:if="{{currentLog}}">
+          <view class="player-info-row">
+            <text class="info-label">比分快照</text>
+            <text class="info-score">{{playerAName}} {{currentLog.scoreA}} : {{currentLog.scoreB}} {{playerBName}}</text>
+          </view>
+          <view class="player-info-row">
+            <text class="info-label">记录时间</text>
+            <text class="info-time">{{currentLog.timestamp || '--'}}</text>
+          </view>
+          <view class="player-info-row">
+            <text class="info-label">动作类型</text>
+            <text class="info-tag info-tag--{{currentLog.type}}">
+              {{currentLog.type === 'smash_score' ? '杀球得分' : ''}}
+              {{currentLog.type === 'net_score' ? '网前得分' : ''}}
+              {{currentLog.type === 'out_error' ? '出界失误' : ''}}
+              {{currentLog.type === 'net_error' ? '下网失误' : ''}}
+            </text>
+          </view>
+        </view>
+
+        <!-- 上/下一条按钮 -->
+        <view class="player-nav">
+          <view class="nav-btn {{currentVideoIndex === 0 ? 'nav-btn--disabled' : ''}}"
+                bindtap="onPrevClip">
+            <text>◀ 上一段</text>
+          </view>
+          <view class="nav-btn {{currentVideoIndex >= filteredLogs.length - 1 ? 'nav-btn--disabled' : ''}}"
+                bindtap="onNextClip">
+            <text>下一段 ▶</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 片段快捷列表 -->
+    <view wx:if="{{selectedFilter && filteredLogs.length > 0 && videoHidden}}"
+          class="clip-list">
+      <text class="clip-list-title">共 {{filteredLogs.length}} 个片段，点击跳播：</text>
+      <block wx:for="{{filteredLogs}}" wx:key="index" wx:for-item="log">
+        <view class="clip-item {{currentVideoIndex === index ? 'clip-item--active' : ''}}"
+              data-index="{{index}}"
+              bindtap="onJumpToClip">
+          <text class="clip-index">{{index + 1}}</text>
+          <view class="clip-meta">
+            <text class="clip-type">
+              {{log.type === 'smash_score' ? '💥 杀球得分' : ''}}
+              {{log.type === 'net_score' ? '🥅 网前得分' : ''}}
+              {{log.type === 'out_error' ? '📤 出界失误' : ''}}
+              {{log.type === 'net_error' ? '📥 下网失误' : ''}}
+            </text>
+            <text class="clip-score">{{playerAName}} {{log.scoreA}}:{{log.scoreB}} {{playerBName}}</text>
+          </view>
+          <text class="clip-time">{{log.timestamp || '--'}}</text>
+        </view>
+      </block>
+    </view>
+  </view>
+
+</view>
+
+<!-- 无比赛数据的空状态 -->
+<view wx:else class="empty-page">
+  <text class="empty-icon">📭</text>
+  <text class="empty-text">未找到比赛数据</text>
+</view>

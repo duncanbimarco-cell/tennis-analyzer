@@ -1,0 +1,76 @@
+<!-- 比赛页面 - 实时战术板 -->
+<view class="container">
+  <!-- 比赛前 -->
+  <view wx:if="{{!matchInProgress}}" class="pre-match">
+    <text class="pre-title">🏸 新比赛</text>
+    <text class="pre-desc">点击下方按钮开始比赛</text>
+    <view class="start-btn" bindtap="startMatch">
+      <text>开始比赛</text>
+    </view>
+  </view>
+
+  <!-- 比赛中 -->
+  <view wx:else class="match-live">
+    <!-- 比分栏 -->
+    <view class="scoreboard">
+      <view class="score-side" bindtap="addScoreA">
+        <text class="score-label">我方</text>
+        <text class="score-num">{{scoreA}}</text>
+      </view>
+      <view class="score-divider">
+        <text>:</text>
+        <view class="undo-btn" bindtap="undoScore">
+          <text>↩ 撤销</text>
+        </view>
+      </view>
+      <view class="score-side" bindtap="addScoreB">
+        <text class="score-label">对方</text>
+        <text class="score-num">{{scoreB}}</text>
+      </view>
+    </view>
+
+    <!-- 击球类型按钮 -->
+    <view class="shot-buttons">
+      <view class="section-title">击球类型</view>
+      <view class="shot-grid">
+        <view class="shot-btn" bindtap="recordShot" data-type="smash">杀球</view>
+        <view class="shot-btn" bindtap="recordShot" data-type="clear">高远球</view>
+        <view class="shot-btn" bindtap="recordShot" data-type="drop">吊球</view>
+        <view class="shot-btn" bindtap="recordShot" data-type="drive">平抽</view>
+        <view class="shot-btn" bindtap="recordShot" data-type="net">网前</view>
+        <view class="shot-btn" bindtap="recordShot" data-type="lob">挑球</view>
+        <view class="shot-btn" bindtap="recordShot" data-type="serve">发球</view>
+      </view>
+    </view>
+
+    <!-- 球场落点 -->
+    <view class="section-title">球场落点（点击记录）</view>
+    <view class="court" bindtap="tapCourt">
+      <!-- 中线 -->
+      <view class="court-line-h" style="top: 50%;"></view>
+      <view class="court-line-v" style="left: 50%;"></view>
+      <!-- 落点标记 -->
+      <block wx:for="{{heatmap}}" wx:key="index">
+        <view class="heat-dot" style="left: {{item.x}}%; top: {{item.y}}%;"></view>
+      </block>
+      <!-- 区域触摸区 -->
+      <block wx:for="{{courtZones}}" wx:key="id">
+        <view class="court-zone"
+              style="left: {{item.x - 8}}%; top: {{item.y - 8}}%;"
+              data-zone="{{item.id}}">
+        </view>
+      </block>
+    </view>
+
+    <!-- 击球统计摘要 -->
+    <view class="shot-summary">
+      <text>杀:{{shots.smash}} 远:{{shots.clear}} 吊:{{shots.drop}} 抽:{{shots.drive}}
+            网:{{shots.net}} 挑:{{shots.lob}} 发:{{shots.serve}}</text>
+    </view>
+
+    <!-- 结束比赛 -->
+    <view class="end-btn" bindtap="endMatch">
+      <text>结束比赛 & 保存</text>
+    </view>
+  </view>
+</view>

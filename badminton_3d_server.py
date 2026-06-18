@@ -9,7 +9,7 @@ import sys, os, json, base64, time, traceback, io
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'sam-3d-body'))
 
 import torch, cv2, numpy as np
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 
 app = Flask(__name__)
 

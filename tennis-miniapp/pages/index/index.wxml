@@ -1,0 +1,112 @@
+<!--
+  网球动作分析器 · 小程序版
+  流程：追踪骨架 → 录制动作 → 自动分析 → 图表报告
+-->
+<view class="container">
+
+  <!-- 摄像头 -->
+  <camera id="camera" device-position="front" flash="off" frame-size="medium"
+    binderror="onCameraError" class="camera" />
+
+  <!-- 骨架 Canvas -->
+  <canvas type="2d" id="skeletonCanvas" class="skeleton-canvas" />
+
+  <!-- 录制指示灯 -->
+  <view class="rec-indicator {{recording ? 'on' : ''}}">
+    <view class="rec-dot"></view>
+    <text class="rec-timer">{{recTimer}}</text>
+  </view>
+
+  <!-- 顶部标题 -->
+  <view class="title-bar">
+    <text class="title-text">🎾 网球动作分析器</text>
+    <view class="step-row">
+      <text class="step {{state=='ready'||state=='recording'||state=='result'?'active':''}}">① 追踪</text>
+      <text class="step-arrow">→</text>
+      <text class="step {{state=='recording'||state=='result'?'active':''}}">② 录制</text>
+      <text class="step-arrow">→</text>
+      <text class="step {{state=='result'?'active':''}}">③ 报告</text>
+    </view>
+  </view>
+
+  <!-- 实时数据条 -->
+  <view class="live-bar">
+    <view class="live-card">
+      <text class="lbl">右肘角度</text>
+      <text class="val {{angleClass}}">{{elbowAngle}}</text>
+    </view>
+    <view class="live-card">
+      <text class="lbl">录制帧数</text>
+      <text class="val neut">{{frameCount}}</text>
+    </view>
+    <view class="live-card">
+      <text class="lbl">状态</text>
+      <text class="val {{statusClass}}">{{statusLabel}}</text>
+    </view>
+  </view>
+
+  <!-- 按钮区 -->
+  <view class="controls" wx:if="{{state!='result'}}">
+    <button class="btn btn-rec" bindtap="toggleRecording" disabled="{{!canRecord}}">
+      {{recording ? '⏹ 停止并分析' : '🔴 开始录制'}}
+    </button>
+    <button class="btn btn-reset" bindtap="resetAll">↺ 重置</button>
+  </view>
+
+  <!-- ==================== 分析结果面板 ==================== -->
+  <scroll-view scroll-y class="result-panel {{state=='result' ? 'show' : ''}}">
+    <!-- 分数 -->
+    <view class="result-header">
+      <text class="result-title">📊 动作分析报告</text>
+      <view class="score-badge {{report.grade}}">
+        <text>{{report.score}}</text>
+      </view>
+    </view>
+
+    <!-- 指标 -->
+    <view class="metrics-row">
+      <view class="metric">
+        <text class="m-lbl">最低肘角度</text>
+        <text class="m-val" style="color:{{report.minAngle<100?'#ff6b6b':'#a8e063'}}">{{report.minAngleText}}</text>
+        <text class="m-sub">越低越弯曲</text>
+      </view>
+      <view class="metric">
+        <text class="m-lbl">弯曲占比</text>
+        <text class="m-val" style="color:{{report.bentRatio>50?'#ff6b6b':'#a8e063'}}">{{report.bentRatioText}}</text>
+        <text class="m-sub">&lt;100° 的帧比例</text>
+      </view>
+    </view>
+    <view class="metrics-row">
+      <view class="metric">
+        <text class="m-lbl">提醒帧数</text>
+        <text class="m-val" style="color:{{report.bentFrames>report.totalFrames*0.5?'#ff6b6b':'#a8e063'}}">{{report.bentFrames}} 帧</text>
+        <text class="m-sub">共 {{report.totalFrames}} 帧</text>
+      </view>
+      <view class="metric">
+        <text class="m-lbl">延展稳定性</text>
+        <text class="m-val" style="color:{{report.stdDev>15?'#ff6b6b':'#a8e063'}}">±{{report.stdDevText}}°</text>
+        <text class="m-sub">角度标准差</text>
+      </view>
+    </view>
+
+    <!-- 曲线图 -->
+    <view class="chart-wrap">
+      <canvas type="2d" id="chartCanvas" class="chart-canvas"></canvas>
+    </view>
+
+    <!-- 诊断建议 -->
+    <view class="verdict-box">
+      <text class="verdict-title">🔍 诊断与建议</text>
+      <view class="verdict-item {{item.cls}}" wx:for="{{verdictItems}}" wx:key="index">
+        <text>{{item.txt}}</text>
+      </view>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="controls" style="margin-top:16rpx;">
+      <button class="btn btn-rec" bindtap="recordAgain">🔴 再录一次</button>
+      <button class="btn btn-reset" bindtap="resetAll">↺ 重新开始</button>
+    </view>
+  </scroll-view>
+
+</view>

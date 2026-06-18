@@ -1,0 +1,24 @@
+<!-- 首页 - 比赛列表 -->
+<view class="container">
+  <view class="header">
+    <text class="title">🏸 羽毛球全场战术板</text>
+  </view>
+
+  <!-- 新建比赛按钮 -->
+  <view class="new-match-btn" bindtap="startNewMatch">
+    <text class="btn-icon">+</text>
+    <text>新建比赛</text>
+  </view>
+
+  <!-- 比赛列表 -->
+  <block wx:for="{{matches}}" wx:key="index">
+    <view class="match-card" bindtap="viewStats" data-index="{{index}}">
+      <text class="match-name">第 {{index + 1}} 场比赛</text>
+      <text class="match-arrow">›</text>
+    </view>
+  </block>
+
+  <view wx:if="{{matches.length === 0}}" class="empty-state">
+    <text>暂无比赛记录，点击上方按钮开始</text>
+  </view>
+</view>

@@ -1,0 +1,173 @@
+/* 比赛页面样式 */
+.pre-match {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 120rpx;
+}
+
+.pre-title {
+  font-size: 48rpx;
+  font-weight: 700;
+}
+
+.pre-desc {
+  color: #999;
+  margin-top: 20rpx;
+  font-size: 28rpx;
+}
+
+.start-btn {
+  margin-top: 80rpx;
+  padding: 28rpx 80rpx;
+  background-color: #34C759;
+  color: #fff;
+  font-size: 36rpx;
+  font-weight: 600;
+  border-radius: 16rpx;
+}
+
+/* 比分栏 */
+.scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30rpx 0;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border-radius: 16rpx;
+  margin: 20rpx;
+  color: #fff;
+}
+
+.score-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 60rpx;
+}
+
+.score-label {
+  font-size: 24rpx;
+  opacity: 0.8;
+}
+
+.score-num {
+  font-size: 72rpx;
+  font-weight: 700;
+}
+
+.score-divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 56rpx;
+  font-weight: 300;
+}
+
+.undo-btn {
+  font-size: 20rpx;
+  background: rgba(255,255,255,0.2);
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+  margin-top: 8rpx;
+}
+
+/* 击球按钮 */
+.shot-buttons {
+  margin: 20rpx;
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin: 20rpx 20rpx 16rpx;
+  color: #555;
+}
+
+.shot-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.shot-btn {
+  padding: 18rpx 28rpx;
+  background-color: #fff;
+  border: 2rpx solid #e0e0e0;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  color: #333;
+}
+
+.shot-btn:active {
+  background-color: #007AFF;
+  color: #fff;
+  border-color: #007AFF;
+}
+
+/* 球场 */
+.court {
+  position: relative;
+  width: 680rpx;
+  height: 880rpx;
+  margin: 0 auto;
+  background-color: #2E7D32;
+  border: 4rpx solid #fff;
+  border-radius: 8rpx;
+  overflow: hidden;
+}
+
+.court-line-h {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2rpx;
+  background-color: rgba(255,255,255,0.5);
+}
+
+.court-line-v {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 2rpx;
+  background-color: rgba(255,255,255,0.5);
+}
+
+.court-zone {
+  position: absolute;
+  width: 16%;
+  height: 16%;
+}
+
+.heat-dot {
+  position: absolute;
+  width: 12rpx;
+  height: 12rpx;
+  background-color: #FF3B30;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.7;
+}
+
+/* 击球统计 */
+.shot-summary {
+  margin: 20rpx;
+  padding: 16rpx 20rpx;
+  background-color: #fff;
+  border-radius: 12rpx;
+  font-size: 24rpx;
+  color: #666;
+  text-align: center;
+}
+
+/* 结束按钮 */
+.end-btn {
+  margin: 30rpx 20rpx;
+  padding: 24rpx;
+  background-color: #FF3B30;
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+  border-radius: 16rpx;
+  text-align: center;
+}

@@ -1,0 +1,163 @@
+/**
+ * 网球动作分析器 · 小程序版样式
+ */
+
+.container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+}
+
+/* ===== 摄像头 ===== */
+.camera {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+
+/* ===== 骨架 Canvas（镜像）===== */
+.skeleton-canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 10;
+  transform: scaleX(-1);
+}
+
+/* ===== 录制指示灯 ===== */
+.rec-indicator {
+  position: absolute; top: 30rpx; left: 30rpx; z-index: 20;
+  display: none; align-items: center; gap: 10rpx;
+}
+.rec-indicator.on { display: flex; }
+
+.rec-dot {
+  width: 22rpx; height: 22rpx; border-radius: 50%;
+  background: #ff3b3b;
+  box-shadow: 0 0 16rpx #ff3b3b;
+  animation: recBlink 0.8s ease-in-out infinite;
+}
+@keyframes recBlink { 50% { opacity: 0.3; } }
+
+.rec-timer {
+  font-size: 26rpx; font-weight: 700; color: #ff3b3b;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 顶部标题 ===== */
+.title-bar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+  padding: 100rpx 30rpx 20rpx;
+  background: linear-gradient(180deg, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0) 100%);
+  pointer-events: none;
+}
+.title-text {
+  font-size: 30rpx; font-weight: 700; color: #a8e063;
+  display: block; margin-bottom: 6rpx;
+}
+.step-row {
+  display: flex; align-items: center; gap: 6rpx;
+}
+.step {
+  font-size: 20rpx; color: #555;
+}
+.step.active { color: #a8e063; font-weight: 600; }
+.step-arrow { font-size: 18rpx; color: #444; }
+
+/* ===== 实时数据条 ===== */
+.live-bar {
+  position: absolute; top: 180rpx; right: 20rpx; z-index: 20;
+  display: flex; flex-direction: column; gap: 8rpx;
+}
+.live-card {
+  background: rgba(0,0,0,0.55);
+  border-radius: 12rpx; padding: 12rpx 20rpx;
+  min-width: 120rpx; text-align: center;
+  backdrop-filter: blur(8rpx);
+}
+.lbl {
+  display: block; font-size: 18rpx; color: rgba(255,255,255,0.55);
+  text-transform: uppercase; letter-spacing: 2rpx;
+}
+.val {
+  display: block; font-size: 30rpx; font-weight: 700; margin-top: 2rpx;
+}
+.val.good { color: #a8e063; }
+.val.bad  { color: #ff6b6b; }
+.val.neut { color: rgba(255,255,255,0.65); }
+
+/* ===== 按钮 ===== */
+.controls {
+  position: absolute; bottom: 40rpx; left: 30rpx; right: 30rpx; z-index: 20;
+  display: flex; gap: 16rpx; justify-content: center;
+}
+.btn {
+  flex: 1; max-width: 300rpx;
+  padding: 20rpx 0; border: none; border-radius: 50rpx;
+  font-size: 26rpx; font-weight: 600; text-align: center;
+}
+.btn-rec {
+  background: linear-gradient(135deg, #ff3b3b, #c0392b);
+  color: #fff;
+  box-shadow: 0 4rpx 20rpx rgba(255,59,59,0.3);
+}
+.btn-reset {
+  background: rgba(255,255,255,0.1);
+  color: #ccc;
+  border: 2rpx solid rgba(255,255,255,0.2);
+}
+button[disabled] { opacity: 0.4; }
+
+/* ===== 分析结果面板 ===== */
+.result-panel {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 30;
+  max-height: 55vh;
+  background: #111; border-top: 2rpx solid #2a2a2a;
+  border-radius: 30rpx 30rpx 0 0;
+  padding: 30rpx 24rpx 40rpx;
+  display: none;
+  overflow-y: auto;
+}
+.result-panel.show { display: block; }
+
+.result-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+.result-title { font-size: 30rpx; font-weight: 700; }
+
+.score-badge {
+  width: 80rpx; height: 80rpx; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32rpx; font-weight: 800;
+}
+.score-badge.great { background: rgba(86,171,47,0.2); color: #a8e063; border: 3rpx solid #56ab2f; }
+.score-badge.ok    { background: rgba(255,165,0,0.2); color: #ffa500; border: 3rpx solid #ff8c00; }
+.score-badge.poor  { background: rgba(255,75,75,0.2); color: #ff6b6b; border: 3rpx solid #ff3b3b; }
+
+.metrics-row {
+  display: flex; gap: 12rpx; margin-bottom: 12rpx;
+}
+.metric {
+  flex: 1; background: #181818; border-radius: 14rpx;
+  padding: 16rpx; text-align: center;
+}
+.m-lbl { display: block; font-size: 20rpx; color: #777; text-transform: uppercase; letter-spacing: 1rpx; }
+.m-val { display: block; font-size: 28rpx; font-weight: 700; margin-top: 4rpx; }
+.m-sub { display: block; font-size: 18rpx; color: #555; margin-top: 2rpx; }
+
+.chart-wrap {
+  width: 100%; background: #181818; border-radius: 14rpx;
+  padding: 10rpx; margin-bottom: 16rpx;
+}
+.chart-canvas { width: 100%; height: 260rpx; }
+
+.verdict-box {
+  background: #181818; border-radius: 14rpx; padding: 20rpx;
+}
+.verdict-title { font-size: 26rpx; font-weight: 600; display: block; margin-bottom: 10rpx; }
+.verdict-item { padding: 8rpx 0; font-size: 24rpx; line-height: 1.6; }
+.verdict-item.good { color: #a8e063; }
+.verdict-item.bad  { color: #ff6b6b; }
+.verdict-item.ok   { color: #ffa500; }
