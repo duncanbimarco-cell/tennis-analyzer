@@ -240,6 +240,7 @@ let ringBuffer=[],ringBufIdx=0,ringBufFull=false;
 
 // 击球检测状态
 let wristHistory=[],lastHitTime=0,hitInProgress=false,hitPeakSpeed=0,hitPeakIdx=0;
+let pendingFollowThrough=null; // {targetIdx, hitNum, preFrames, hitScreenshot}
 let hitLockCountdown=0; // 击球后继续录制帧数
 
 // 跑动追踪
@@ -447,39 +448,77 @@ function detectHit(wristX,wristY,frameIndex,landmarks){
     if(avgSpeed<0.003){
       // 击球确认！锁定片段
       hitCount++;
+      const capLandmarks=lastResults&&lastResults.poseLandmarks?lastResults.poseLandmarks:null;
+
+      // === 阶段1：引拍/挥拍瞬间（击球前 ~10帧 = ~0.3s）===
+      let backswingSS=null;
+      const backswingIdx=Math.max(0,hitPeakIdx-10);
+      if(capLandmarks&&backswingIdx>=0){
+        // 尝试从环形缓冲区取引拍帧的 landmarks
+        const bsFrame=getFrameFromBuffer(backswingIdx);
+        if(bsFrame&&bsFrame.landmarks){
+          backswingSS=captureScreenshot(bsFrame.landmarks,false);
+        }
+      }
+
+      // === 阶段2：击球瞬间 ===
+      let hitSS=null;
+      if(capLandmarks){
+        hitSS=captureScreenshot(capLandmarks,true);
+      }
+      const rElbow=capLandmarks?calcAngle(capLandmarks[12],capLandmarks[14],capLandmarks[16]):null;
+
+      // === 阶段3：随挥瞬间（击球后 ~10帧 = ~0.3s）— 延迟捕获 ===
+      const followThroughTarget=Math.min(recordedFrames.length+BUFFER_SIZE,hitPeakIdx+15);
+      if(capLandmarks){
+        pendingFollowThrough={
+          targetIdx:followThroughTarget,
+          hitNum:hitCount,
+          hitSS:hitSS,
+          backswingSS:backswingSS,
+          hitPeakIdx:hitPeakIdx,
+          speed:hitPeakSpeed
+        };
+      }
+
+      // 保存击球事件（含引拍截图）
+      screenshots.push({
+        dataUrl:hitSS,elbowAngle:rElbow,speed:hitPeakSpeed,
+        hitNum:hitCount,idx:recordedFrames.length,
+        backswingSS:backswingSS
+      });
+
       const hitFrameData={
-        idx:hitPeakIdx,
-        speed:hitPeakSpeed,
-        timestamp:performance.now()-recStartTime,
-        hitNum:hitCount
+        idx:hitPeakIdx,speed:hitPeakSpeed,
+        timestamp:performance.now()-recStartTime,hitNum:hitCount
       };
 
-      // 从环形缓冲区提取击球前帧
-      const preFrames=getPreHitFrames(60); // ~2秒
+      const preFrames=getPreHitFrames(60);
       hits.push({...hitFrameData,preFrames:preFrames});
-
-      // 锁定：继续录制 BUFFER_SIZE 帧作为击球后片段
       currentClipFrames=[...preFrames];
       hitLockCountdown=BUFFER_SIZE;
-
-      // 截图击球瞬间
-      const capLandmarks=lastResults&&lastResults.poseLandmarks?lastResults.poseLandmarks:null;
-      if(capLandmarks){
-        const ss=captureScreenshot(capLandmarks,true);
-        const rElbow=calcAngle(capLandmarks[12],capLandmarks[14],capLandmarks[16]);
-        screenshots.push({dataUrl:ss,elbowAngle:rElbow,speed:hitPeakSpeed,hitNum:hitCount,idx:recordedFrames.length});
-      }
 
       hitInProgress=false;hitPeakSpeed=0;lastHitTime=performance.now();
       hitCountLive.textContent=hitCount;
       document.getElementById('hitCntBar').textContent=hitCount;
       document.getElementById('hitCntBar').className='val orange';
-
-      // 闪光效果
       hitFlash.classList.add('pop');
       setTimeout(()=>hitFlash.classList.remove('pop'),100);
     }
   }
+}
+
+// 从环形缓冲区按索引获取一帧（用于获取引拍帧的 landmarks）
+function getFrameFromBuffer(targetIdx){
+  if(ringBufferFull){
+    for(let i=0;i<BUFFER_SIZE;i++){
+      const idx=(ringBufIdx-1-i+BUFFER_SIZE)%BUFFER_SIZE;
+      if(ringBuffer[idx]&&ringBuffer[idx].idx===targetIdx)return ringBuffer[idx];
+    }
+  }
+  // 如果在 recordedFrames 中，直接取
+  if(targetIdx>=0&&targetIdx<recordedFrames.length)return recordedFrames[targetIdx];
+  return null;
 }
 
 // 从环形缓冲区提取击球前N帧
@@ -624,8 +663,9 @@ function loop(){
         torsion3D=calcTorsionAngle(wlm);
       }
 
+      const frameIdx=recordedFrames.length;
       const frameData={
-        ts:now-recStartTime,
+        idx:frameIdx,ts:now-recStartTime,
         landmarks:lm.map(p=>({x:p.x,y:p.y,z:p.z||0,visibility:p.visibility})),
         rElbowAngle,lElbowAngle,rKneeAngle,torsionAngle,
         rElbow3D,lElbow3D,rKnee3D,torsion3D,
@@ -647,13 +687,29 @@ function loop(){
         currentClipFrames.push(frameData);
         hitLockCountdown--;
         if(hitLockCountdown===0){
-          // 片段完成
           const lastHit=hits[hits.length-1];
           if(lastHit){
             lastHit.postFrames=currentClipFrames.slice(-BUFFER_SIZE);
             lastHit.clipFrames=currentClipFrames;
           }
         }
+      }
+
+      // === 随挥瞬间捕获 ===
+      if(pendingFollowThrough&&frameIdx>=pendingFollowThrough.targetIdx){
+        const pft=pendingFollowThrough;
+        const capLandmarks=lastResults&&lastResults.poseLandmarks?lastResults.poseLandmarks:null;
+        let followSS=null;
+        if(capLandmarks){
+          followSS=captureScreenshot(capLandmarks,false);
+        }
+        // 更新对应击球的截图，追加随挥
+        const ss=screenshots.find(s=>s.hitNum===pft.hitNum);
+        if(ss){
+          ss.followThroughSS=followSS;
+          ss.backswingSS=pft.backswingSS;
+        }
+        pendingFollowThrough=null;
       }
 
       // 检测击球（如果不在锁定状态）
@@ -1161,106 +1217,6 @@ let lastReport=null;
 // ============ SAM 3D Body 分析 ============
 const SAM3D_SERVER='http://localhost:8765';
 
-async function analyze3D(){
-  if(screenshots.length===0){alert('没有击球截图，请先录制击球动作');return;}
-
-  const btn3D=document.getElementById('btn3D');
-  const status3D=document.getElementById('status3D');
-  const box=document.getElementById('analysis3DBox');
-  const content=document.getElementById('analysis3DContent');
-
-  btn3D.disabled=true;
-  status3D.style.display='block';
-  status3D.textContent='🧬 连接 SAM 3D Body 服务器...';
-
-  // 检查服务器健康状态
-  try{
-    const healthResp=await fetch(SAM3D_SERVER+'/health',{method:'GET'});
-    const health=await healthResp.json();
-    if(!health.model_loaded){
-      status3D.textContent='⚠️ SAM 3D Body 模型未加载，请先在终端启动服务器: python badminton_3d_server.py';
-      btn3D.disabled=false;
-      return;
-    }
-    status3D.textContent='🧬 正在 3D 分析 '+screenshots.length+' 张击球关键帧...';
-  }catch(e){
-    status3D.textContent='❌ 无法连接服务器 '+SAM3D_SERVER+'，请确保已启动: python badminton_3d_server.py';
-    btn3D.disabled=false;
-    return;
-  }
-
-  // 发送所有击球截图到服务器
-  try{
-    const images=screenshots.map(s=>s.dataUrl);
-    const resp=await fetch(SAM3D_SERVER+'/analyze',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({images,return_mesh:false})
-    });
-    const data=await resp.json();
-
-    if(!data.success){
-      status3D.textContent='❌ 3D 分析失败: '+(data.error||'未知错误');
-      btn3D.disabled=false;
-      return;
-    }
-
-    // 显示结果
-    status3D.textContent='✅ 3D 分析完成！（设备: '+data.device+'）';
-    status3D.style.color='#34d399';
-    box.style.display='block';
-
-    // 汇总所有帧的 3D 角度
-    let allAngles=[];
-    let avgRElbow=0,avgLElbow=0,avgTorsion=0,avgTilt=0,avgRKnee=0;
-    let count=0;
-
-    for(let i=0;i<data.results.length;i++){
-      const r=data.results[i];
-      if(r.angles&&!r.angles.error){
-        allAngles.push(r.angles);
-        avgRElbow+=r.angles.r_elbow_3d||0;
-        avgLElbow+=r.angles.l_elbow_3d||0;
-        avgTorsion+=r.angles.torsion_3d||0;
-        avgTilt+=r.angles.tilt_3d||0;
-        avgRKnee+=r.angles.r_knee_3d||0;
-        count++;
-      }
-    }
-    if(count>0){
-      avgRElbow=Math.round(avgRElbow/count*10)/10;
-      avgLElbow=Math.round(avgLElbow/count*10)/10;
-      avgTorsion=Math.round(avgTorsion/count*10)/10;
-      avgTilt=Math.round(avgTilt/count*10)/10;
-      avgRKnee=Math.round(avgRKnee/count*10)/10;
-    }
-
-    // 构建 3D 分析HTML
-    let html='<div class="metrics-row">';
-    html+='<div class="metric"><div class="m-lbl">3D 右肘角</div><div class="m-val" style="color:'+(avgRElbow>150?'#34d399':'#f87171')+'">'+avgRElbow+'°</div><div class="m-sub">真实空间角度</div></div>';
-    html+='<div class="metric"><div class="m-lbl">3D 左肘角</div><div class="m-val" style="color:'+(avgLElbow>90?'#34d399':'#f87171')+'">'+avgLElbow+'°</div><div class="m-sub">非持拍手</div></div>';
-    html+='<div class="metric"><div class="m-lbl">3D 肩髋扭转</div><div class="m-val" style="color:'+(avgTorsion>25?'#34d399':'#f87171')+'">'+avgTorsion+'°</div><div class="m-sub">转体发力</div></div>';
-    html+='<div class="metric"><div class="m-lbl">3D 身体倾斜</div><div class="m-val" style="color:#f97316">'+avgTilt+'°</div><div class="m-sub">后仰/前倾</div></div>';
-    html+='<div class="metric"><div class="m-lbl">3D 右膝角度</div><div class="m-val" style="color:'+(avgRKnee<130?'#34d399':'#f87171')+'">'+avgRKnee+'°</div><div class="m-sub">屈膝发力</div></div>';
-    html+='<div class="metric"><div class="m-lbl">推理耗时</div><div class="m-val" style="color:#888">'+(data.results[0]?.inference_time_ms||'--')+'ms</div><div class="m-sub">每帧 MPS</div></div>';
-    html+='</div>';
-
-    // 与 2D 对比
-    html+='<p style="font-size:0.8rem;color:#888;margin-top:10px;">';
-    html+='📐 以上为 SAM 3D Body 从单张图片重建的真实 3D 空间角度，比 2D 投影角度更准确。';
-    html+='击球时右肘 3D 角度 '+(avgRElbow>150?'≥150° → 手臂伸展充分 ✅':(avgRElbow>130?'130-150° → 尚可，可进一步伸展 ⚠️':'<130° → 手臂弯曲，力量损失大 ❌'));
-    html+=' | 转体 '+(avgTorsion>25?'充分 ✅':(avgTorsion>15?'一般 ⚠️':'不足 ❌'));
-    html+='</p>';
-
-    content.innerHTML=html;
-    box.scrollIntoView({behavior:'smooth',block:'nearest'});
-
-  }catch(e){
-    status3D.textContent='❌ 连接失败: '+e.message;
-    btn3D.disabled=false;
-  }
-}
-
 // ============ SAM 3D Body 分析 ============
 const SAM3D_SERVER='http://localhost:8765';
 
@@ -1271,50 +1227,82 @@ async function analyze3D(){
   const box3D=document.getElementById('analysis3DBox');
   const content3D=document.getElementById('analysis3DContent');
   box3D.style.display='block';
-  content3D.innerHTML='<p style="color:#888;">🧬 正在通过 SAM 3D Body 进行精确 3D 分析...（每帧约需 60 秒）</p><div style="display:flex;gap:4px;margin-top:8px;" id="progress3D"></div>';
+  content3D.innerHTML='<p style="color:#888;">🧬 SAM 3D Body 三阶段分析（引拍→击球→随挥）... 每击约 3 分钟</p><div id="progress3D" style="font-size:0.75rem;color:#f97316;"></div>';
 
-  const results=[];
+  const allResults=[];
   for(let i=0;i<screenshots.length;i++){
     const ss=screenshots[i];
-    document.getElementById('progress3D').innerHTML+='<span style="font-size:0.7rem;color:#f97316;">⏳ 击球'+(i+1)+'</span> ';
+    const prog=document.getElementById('progress3D');
+    prog.innerHTML='⏳ 击球 #'+(i+1)+' 【引拍...】';
 
+    // 发送三阶段图片
     try{
+      const body={image:ss.dataUrl};  // 击球瞬间（必选）
+      if(ss.backswingSS) body.backswingSS=ss.backswingSS;  // 引拍瞬间
+      if(ss.followThroughSS) body.followThroughSS=ss.followThroughSS;  // 随挥瞬间
+
+      prog.innerHTML='⏳ 击球 #'+(i+1)+' 【分析中...】';
       const resp=await fetch(SAM3D_SERVER+'/analyze',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({image:ss.dataUrl})
+        body:JSON.stringify(body)
       });
       const data=await resp.json();
       if(data.status==='ok'){
-        results.push({hitNum:i+1,...data});
+        allResults.push({hitNum:i+1,...data});
+        prog.innerHTML='✅ 击球 #'+(i+1)+' 完成';
       }else{
-        results.push({hitNum:i+1,error:data.error||'Unknown error'});
+        allResults.push({hitNum:i+1,error:data.error||'Unknown error'});
       }
     }catch(e){
-      results.push({hitNum:i+1,error:'❌ 无法连接 3D 服务器('+SAM3D_SERVER+')。请确保服务器已启动：conda run -n sam3d python badminton_3d_server.py'});
+      allResults.push({hitNum:i+1,error:'❌ 无法连接服务器('+SAM3D_SERVER+')。请启动: conda run -n sam3d python badminton_3d_server.py'});
+      break;
     }
   }
 
-  // 显示结果
+  // 显示三阶段结果
   let html='';
-  for(const r of results){
+  for(const r of allResults){
     if(r.error){
       html+='<div style="background:#2a1515;border-radius:8px;padding:12px;margin-bottom:8px;"><b>击球 #'+r.hitNum+'</b>: '+r.error+'</div>';
-    }else{
-      const a=r.angles;
-      html+='<div style="background:#1a2a1a;border-radius:8px;padding:12px;margin-bottom:8px;border-left:3px solid #f97316;">';
-      html+='<b>🏸 击球 #'+r.hitNum+'</b> | ⏱ '+r.elapsed+'s | 评分: <b style="color:'+(r.grade==='great'?'#34d399':r.grade==='ok'?'#fbbf24':'#f87171')+';">'+r.score+'分 ('+r.grade+')</b>';
-      html+='<table style="width:100%;margin-top:8px;font-size:0.75rem;color:#aaa;">';
-      html+='<tr><td>右肘 3D</td><td style="color:'+(a.r_elbow>150?'#34d399':'#f87171')+';">'+(a.r_elbow||'--')+'°</td><td>右肩外展</td><td>'+(a.r_shoulder_up||'--')+'°</td></tr>';
-      html+='<tr><td>左肘 3D</td><td>'+(a.l_elbow||'--')+'°</td><td>左手抬高</td><td>'+(a.l_shoulder_up||'--')+'°</td></tr>';
-      html+='<tr><td>右膝 3D</td><td style="color:'+(a.r_knee<130?'#34d399':'#f87171')+';">'+(a.r_knee||'--')+'°</td><td>肩髋扭转</td><td style="color:'+(a.torso_twist>25?'#34d399':'#f87171')+';">'+(a.torso_twist||'--')+'°</td></tr>';
-      html+='<tr><td>身体倾斜</td><td>'+(a.body_tilt||'--')+'°</td><td>过顶击球</td><td>'+(a.is_overhead?'✅':'否')+'</td></tr>';
-      html+='</table>';
+      continue;
+    }
+    html+='<div style="background:#1a2a1a;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #f97316;">';
+    html+='<b>🏸 击球 #'+r.hitNum+'</b> | 综合: <b style="color:'+(r.grade==='great'?'#34d399':r.grade==='ok'?'#fbbf24':'#f87171')+';">'+r.total_score+'分</b>';
+    html+='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">';
+
+    // 三阶段对比卡片
+    const phaseNames={backswing:'🏌️ 引拍',hit:'💥 击球',followThrough:'🏁 随挥'};
+    const colors={backswing:'#6366f1',hit:'#f97316',followThrough:'#34d399'};
+    for(const [phase,name] of Object.entries(phaseNames)){
+      const p=r.phases[phase];
+      if(!p||p.error)continue;
+      const a=p.angles;
+      html+='<div style="flex:1;min-width:140px;background:#111118;border-radius:8px;padding:8px;border-top:3px solid '+colors[phase]+';">';
+      html+='<div style="font-size:0.8rem;font-weight:bold;color:'+colors[phase]+';">'+name+'</div>';
+      html+='<div style="font-size:0.65rem;color:#999;">右肘: <b style="color:'+(a.r_elbow>150?'#34d399':'#f87171')+';">'+(a.r_elbow||'--')+'°</b></div>';
+      html+='<div style="font-size:0.65rem;color:#999;">扭转: <b>'+(a.torso_twist||'--')+'°</b></div>';
+      html+='<div style="font-size:0.65rem;color:#999;">左肩: <b>'+(a.l_shoulder_up||'--')+'°</b></div>';
+      html+='<div style="font-size:0.65rem;color:#999;">右膝: <b>'+(a.r_knee||'--')+'°</b></div>';
+      html+='<div style="font-size:0.65rem;color:#999;">背面: ✅（3D网格已生成）</div>';
+
+      // 阶段诊断
+      for(const f of(p.feedback||[]).slice(0,2)){
+        html+='<div style="font-size:0.6rem;color:'+(f.l==='good'?'#34d399':f.l==='warn'?'#fbbf24':'#f87171')+';">• '+f.m.substring(0,20)+'</div>';
+      }
+      html+='</div>';
+    }
+    html+='</div>';
+
+    // 动作链反馈
+    if(r.chain_feedback&&r.chain_feedback.length>0){
       html+='<div style="margin-top:6px;font-size:0.7rem;">';
-      for(const f of r.feedback){
+      html+='<b>🔗 动作链分析：</b><br>';
+      for(const f of r.chain_feedback){
         html+='<span style="color:'+(f.l==='good'?'#34d399':f.l==='warn'?'#fbbf24':'#f87171')+';">• '+f.m+'</span><br>';
       }
-      html+='</div></div>';
+      html+='</div>';
     }
+    html+='</div>';
   }
   content3D.innerHTML=html;
   btn3D.disabled=false;btn3D.textContent='🧬 3D分析';
@@ -1347,7 +1335,7 @@ function resetAll(){
   stopRecordingInternal();resetTracking();trackBadge.classList.remove('on');
   recordedFrames=[];hitCount=0;hits=[];screenshots=[];wristHistory=[];hitInProgress=false;hitPeakSpeed=0;
   hipTrack=[];totalDistPx=0;totalDistM=0;startHipPos=null;maxSpanPx=0;
-  ringBuffer=[];ringBufIdx=0;ringBufFull=false;hitLockCountdown=0;currentClipFrames=[];lastReport=null;
+  ringBuffer=[];ringBufIdx=0;ringBufFull=false;hitLockCountdown=0;currentClipFrames=[];lastReport=null;pendingFollowThrough=null;
   recTimer.textContent='00:00';hitCountLive.textContent='0';distLive.textContent='0m';
   resultPanel.classList.remove('show');btnExport.style.display='none';btnExport.disabled=true;btn3D.style.display='none';btn3D.disabled=true;
   btnRec.textContent='🔴 开始录制';
