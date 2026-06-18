@@ -132,8 +132,12 @@ footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bo
   <button id="btnRec" class="btn btn-rec" onclick="toggleRecording()" disabled>🔴 开始录制</button>
   <button id="btnTrack" class="btn btn-track" onclick="toggleTracking()" disabled>🎥 追踪模式</button>
   <button id="btnReset" class="btn btn-reset" onclick="resetAll()">↺ 重置</button>
+  <button id="btn3D" class="btn btn-export" onclick="analyze3D()" disabled style="display:none;">🧬 3D 分析</button>
   <button id="btnExport" class="btn btn-export" onclick="exportData()" disabled style="display:none;">📥 导出数据</button>
 </div>
+
+<!-- 3D 分析状态 -->
+<div id="status3D" style="width:100%;max-width:720px;text-align:center;padding:8px;color:#f97316;font-size:0.85rem;display:none;"></div>
 
 <div class="live-bar">
   <div class="live-card"><div class="lbl">右肘角度</div><div class="val neut" id="rElbow">--°</div></div>
@@ -184,6 +188,12 @@ footer{font-size:0.65rem;color:#444;text-align:center;max-width:720px;padding-bo
   <!-- 图表 -->
   <div class="chart-wrap">
     <canvas id="chartCanvas"></canvas>
+  </div>
+
+  <!-- SAM 3D Body 分析结果 -->
+  <div class="verdict-box" id="analysis3DBox" style="display:none;border:1px solid #f97316;">
+    <h3>🧬 SAM 3D Body 精确 3D 分析 <span style="font-size:0.7rem;color:#888;">（真实 3D 空间角度，非 2D 投影）</span></h3>
+    <div id="analysis3DContent"></div>
   </div>
 
   <div class="verdict-box" id="verdictBox">
@@ -733,8 +743,11 @@ function stopRecordingInternal(){
 function stopAndAnalyze(){
   stopRecordingInternal();
   btnRec.textContent='🔴 开始录制';btnCam.disabled=false;btnReset.disabled=false;
+  document.getElementById('btn3D').style.display='none';document.getElementById('btn3D').disabled=true;
   document.getElementById('statusLabel').textContent='分析中…';document.getElementById('statusLabel').className='val neut';
   resetTracking();trackBadge.classList.remove('on');
+  document.getElementById('status3D').style.display='none';
+  document.getElementById('analysis3DBox').style.display='none';
 
   if(recordedFrames.length<10){document.getElementById('statusLabel').textContent='数据不足';document.getElementById('statusLabel').className='val bad';return;}
 
@@ -750,6 +763,7 @@ function stopAndAnalyze(){
   showReport(report,recordedFrames);
 
   state=STATE.RESULT;btnExport.style.display='inline-block';btnExport.disabled=false;
+  document.getElementById('btn3D').style.display='inline-block';document.getElementById('btn3D').disabled=false;
   document.getElementById('statusLabel').textContent='分析完成';document.getElementById('statusLabel').className='val good';
 }
 
@@ -1099,6 +1113,109 @@ function buildDrills(r){
 
 // 保存最后一次报告引用（供导出使用）
 let lastReport=null;
+
+// ============ SAM 3D Body 分析 ============
+const SAM3D_SERVER='http://localhost:8765';
+
+async function analyze3D(){
+  if(screenshots.length===0){alert('没有击球截图，请先录制击球动作');return;}
+
+  const btn3D=document.getElementById('btn3D');
+  const status3D=document.getElementById('status3D');
+  const box=document.getElementById('analysis3DBox');
+  const content=document.getElementById('analysis3DContent');
+
+  btn3D.disabled=true;
+  status3D.style.display='block';
+  status3D.textContent='🧬 连接 SAM 3D Body 服务器...';
+
+  // 检查服务器健康状态
+  try{
+    const healthResp=await fetch(SAM3D_SERVER+'/health',{method:'GET'});
+    const health=await healthResp.json();
+    if(!health.model_loaded){
+      status3D.textContent='⚠️ SAM 3D Body 模型未加载，请先在终端启动服务器: python badminton_3d_server.py';
+      btn3D.disabled=false;
+      return;
+    }
+    status3D.textContent='🧬 正在 3D 分析 '+screenshots.length+' 张击球关键帧...';
+  }catch(e){
+    status3D.textContent='❌ 无法连接服务器 '+SAM3D_SERVER+'，请确保已启动: python badminton_3d_server.py';
+    btn3D.disabled=false;
+    return;
+  }
+
+  // 发送所有击球截图到服务器
+  try{
+    const images=screenshots.map(s=>s.dataUrl);
+    const resp=await fetch(SAM3D_SERVER+'/analyze',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({images,return_mesh:false})
+    });
+    const data=await resp.json();
+
+    if(!data.success){
+      status3D.textContent='❌ 3D 分析失败: '+(data.error||'未知错误');
+      btn3D.disabled=false;
+      return;
+    }
+
+    // 显示结果
+    status3D.textContent='✅ 3D 分析完成！（设备: '+data.device+'）';
+    status3D.style.color='#34d399';
+    box.style.display='block';
+
+    // 汇总所有帧的 3D 角度
+    let allAngles=[];
+    let avgRElbow=0,avgLElbow=0,avgTorsion=0,avgTilt=0,avgRKnee=0;
+    let count=0;
+
+    for(let i=0;i<data.results.length;i++){
+      const r=data.results[i];
+      if(r.angles&&!r.angles.error){
+        allAngles.push(r.angles);
+        avgRElbow+=r.angles.r_elbow_3d||0;
+        avgLElbow+=r.angles.l_elbow_3d||0;
+        avgTorsion+=r.angles.torsion_3d||0;
+        avgTilt+=r.angles.tilt_3d||0;
+        avgRKnee+=r.angles.r_knee_3d||0;
+        count++;
+      }
+    }
+    if(count>0){
+      avgRElbow=Math.round(avgRElbow/count*10)/10;
+      avgLElbow=Math.round(avgLElbow/count*10)/10;
+      avgTorsion=Math.round(avgTorsion/count*10)/10;
+      avgTilt=Math.round(avgTilt/count*10)/10;
+      avgRKnee=Math.round(avgRKnee/count*10)/10;
+    }
+
+    // 构建 3D 分析HTML
+    let html='<div class="metrics-row">';
+    html+='<div class="metric"><div class="m-lbl">3D 右肘角</div><div class="m-val" style="color:'+(avgRElbow>150?'#34d399':'#f87171')+'">'+avgRElbow+'°</div><div class="m-sub">真实空间角度</div></div>';
+    html+='<div class="metric"><div class="m-lbl">3D 左肘角</div><div class="m-val" style="color:'+(avgLElbow>90?'#34d399':'#f87171')+'">'+avgLElbow+'°</div><div class="m-sub">非持拍手</div></div>';
+    html+='<div class="metric"><div class="m-lbl">3D 肩髋扭转</div><div class="m-val" style="color:'+(avgTorsion>25?'#34d399':'#f87171')+'">'+avgTorsion+'°</div><div class="m-sub">转体发力</div></div>';
+    html+='<div class="metric"><div class="m-lbl">3D 身体倾斜</div><div class="m-val" style="color:#f97316">'+avgTilt+'°</div><div class="m-sub">后仰/前倾</div></div>';
+    html+='<div class="metric"><div class="m-lbl">3D 右膝角度</div><div class="m-val" style="color:'+(avgRKnee<130?'#34d399':'#f87171')+'">'+avgRKnee+'°</div><div class="m-sub">屈膝发力</div></div>';
+    html+='<div class="metric"><div class="m-lbl">推理耗时</div><div class="m-val" style="color:#888">'+(data.results[0]?.inference_time_ms||'--')+'ms</div><div class="m-sub">每帧 MPS</div></div>';
+    html+='</div>';
+
+    // 与 2D 对比
+    html+='<p style="font-size:0.8rem;color:#888;margin-top:10px;">';
+    html+='📐 以上为 SAM 3D Body 从单张图片重建的真实 3D 空间角度，比 2D 投影角度更准确。';
+    html+='击球时右肘 3D 角度 '+(avgRElbow>150?'≥150° → 手臂伸展充分 ✅':(avgRElbow>130?'130-150° → 尚可，可进一步伸展 ⚠️':'<130° → 手臂弯曲，力量损失大 ❌'));
+    html+=' | 转体 '+(avgTorsion>25?'充分 ✅':(avgTorsion>15?'一般 ⚠️':'不足 ❌'));
+    html+='</p>';
+
+    content.innerHTML=html;
+    box.scrollIntoView({behavior:'smooth',block:'nearest'});
+
+  }catch(e){
+    status3D.textContent='❌ 连接失败: '+e.message;
+    btn3D.disabled=false;
+  }
+}
 
 // ============ 导出 ============
 function exportData(){
