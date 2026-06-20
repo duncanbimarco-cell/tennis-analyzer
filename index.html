@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏸 AI 羽毛球挥拍分析仪</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.header{background:#1e293b;padding:20px;text-align:center;border-bottom:2px solid #334155}
+.header h1{font-size:1.8rem}
+.header p{color:#94a3b8;margin-top:4px}
+.container{max-width:1100px;margin:0 auto;padding:20px;display:flex;gap:20px;flex-wrap:wrap}
+.panel{background:#1e293b;border-radius:12px;padding:20px;flex:1;min-width:300px}
+.panel h3{margin-bottom:12px;color:#38bdf8}
+.upload-zone{border:2px dashed #475569;border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:.2s}
+.upload-zone:hover{border-color:#38bdf8;background:rgba(56,189,248,.05)}
+.upload-zone input{display:none}
+.btn{display:inline-block;padding:10px 24px;border-radius:8px;font-size:1rem;cursor:pointer;border:none;font-weight:600;transition:.2s}
+.btn-primary{background:#2563eb;color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-primary:disabled{background:#475569;cursor:not-allowed}
+.btn-success{background:#16a34a;color:#fff}
+.btn-success:hover{background:#15803d}
+canvas,video{width:100%;border-radius:8px;background:#000}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.badge{padding:6px 14px;border-radius:20px;font-size:.9rem;font-weight:600}
+.badge-green{background:#16a34a;color:#fff}
+.badge-orange{background:#ea580c;color:#fff}
+.badge-blue{background:#2563eb;color:#fff}
+.card{background:#0f172a;border-radius:10px;padding:16px;text-align:center;flex:1;min-width:120px}
+.card .value{font-size:1.8rem;font-weight:700;margin:6px 0}
+.card .label{color:#94a3b8;font-size:.85rem}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.85rem}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #334155}
+th{color:#94a3b8;font-weight:500}
+.hidden{display:none}
+#log{background:#000;color:#0f0;padding:10px;border-radius:8px;font-family:monospace;font-size:.75rem;max-height:200px;overflow-y:auto;white-space:pre-wrap}
+.spinner{display:inline-block;width:20px;height:20px;border:3px solid #475569;border-top-color:#38bdf8;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🏸 AI 羽毛球挥拍分析仪</h1>
+  <p>MoveNet 姿态估计 · 纯浏览器端运行 · 无需后端</p>
+</div>
+
+<div class="container">
+  <div class="panel" style="flex:2">
+    <h3>📤 上传挥拍视频</h3>
+    <div class="upload-zone" id="dropZone">
+      <p style="font-size:2rem">📁</p>
+      <p>点击或拖拽上传 MP4 视频</p>
+      <p style="color:#64748b;font-size:.85rem">建议 3-10 秒 · 侧面拍摄 · 单人挥拍</p>
+      <input type="file" id="fileInput" accept="video/mp4,video/mov,video/webm,video/avi">
+    </div>
+    <div class="row">
+      <label>持拍手：</label>
+      <label><input type="radio" name="hand" value="0" checked> 右手</label>
+      <label><input type="radio" name="hand" value="1"> 左手</label>
+    </div>
+    <button class="btn btn-primary" id="analyzeBtn" disabled>🚀 开始 AI 分析</button>
+    <button class="btn btn-success hidden" id="downloadBtn">⬇️ 下载标记视频</button>
+    <div id="status" style="margin-top:8px;color:#94a3b8"></div>
+    <video id="previewVideo" class="hidden" controls></video>
+    <canvas id="outputCanvas" class="hidden"></canvas>
+  </div>
+
+  <div class="panel" style="flex:1">
+    <h3>📊 实时数据</h3>
+    <div class="row">
+      <div class="card"><div class="label">肘关节角度</div><div class="value" id="angleVal">—°</div></div>
+      <div class="card"><div class="label">挥拍状态</div><div class="value" id="swingVal">等待</div></div>
+    </div>
+    <div id="reportArea" class="hidden">
+      <h4 style="margin-top:16px;color:#38bdf8">评估报告</h4>
+      <div class="row">
+        <div class="card"><div class="label">蓄力</div><div class="value" id="rBackswing">—</div></div>
+        <div class="card"><div class="label">爆发力</div><div class="value" id="rImpact">—</div></div>
+        <div class="card"><div class="label">连贯性</div><div class="value" id="rMotion">—</div></div>
+      </div>
+    </div>
+    <h4 style="margin-top:16px;color:#94a3b8">处理日志</h4>
+    <div id="log">等待视频上传...</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2"></script>
+
+<script>
+const log = el => { const l = document.getElementById('log'); l.textContent += el + '\n'; l.scrollTop = l.scrollHeight }
+const $ = id => document.getElementById(id)
+
+let detector = null, framesData = [], mediaRecorder = null, recordedChunks = []
+let isLeftHanded = false
+const SWING_MIN = 80, SWING_MAX = 170, BACKSWING_MIN = 120, BACKSWING_MAX = 160
+const MOVING_AVG_WINDOW = 5, IMPACT_THRESHOLD = 8
+
+// Index mapping: COCO format (MoveNet uses COCO)
+// left: 5=shoulder, 7=elbow, 9=wrist  right: 6=shoulder, 8=elbow, 10=wrist
+function getIndices(){ const L = isLeftHanded; return { s: L?5:6, e: L?7:8, w: L?9:10 } }
+
+async function loadDetector(){
+  log('正在加载 MoveNet 模型 (~5MB)...')
+  const model = poseDetection.SupportedModels.MoveNet
+  detector = await poseDetection.createDetector(model, {
+    modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+  })
+  log('✅ MoveNet 加载完成')
+}
+
+function calcAngle(shoulder, elbow, wrist){
+  const v1 = [shoulder.x - elbow.x, shoulder.y - elbow.y]
+  const v2 = [wrist.x - elbow.x, wrist.y - elbow.y]
+  const a1 = Math.atan2(v1[1], v1[0]), a2 = Math.atan2(v2[1], v2[0])
+  let angle = Math.abs((a2 - a1) * 180 / Math.PI)
+  return angle > 180 ? 360 - angle : angle
+}
+
+function movingAverage(data, window){
+  if (data.length < window) return data
+  const kernel = Array(window).fill(1/window)
+  const result = []
+  const pad = Math.floor(window/2)
+  for (let i = 0; i < data.length; i++){
+    let sum = 0, count = 0
+    for (let j = Math.max(0,i-pad); j < Math.min(data.length,i+pad+1); j++){ sum += data[j]; count++ }
+    result.push(sum/count)
+  }
+  return result
+}
+
+function detectImpact(smoothedWy){
+  let maxD = -Infinity, idx = 0
+  for (let i = 1; i < smoothedWy.length; i++){
+    const d = smoothedWy[i] - smoothedWy[i-1]
+    if (d > maxD){ maxD = d; idx = i }
+  }
+  return { idx, vel: maxD }
+}
+
+function generateReport(){
+  if (framesData.length < MOVING_AVG_WINDOW) return null
+  const rawY = framesData.map(f => f.wrist_y)
+  const smoothed = movingAverage(rawY, MOVING_AVG_WINDOW)
+  const impact = detectImpact(smoothed)
+
+  const backswingAngles = framesData
+    .filter((f,i) => i < impact.idx && f.angle >= BACKSWING_MIN && f.angle <= BACKSWING_MAX)
+    .map(f => f.angle)
+  const maxBack = backswingAngles.length ? Math.max(...backswingAngles) : 0
+  const followFrames = framesData.length - impact.idx
+
+  return {
+    蓄力评估: maxBack > 150 ? '优秀' : '建议增加挥拍幅度',
+    击球爆发力: impact.vel > IMPACT_THRESHOLD ? '高' : '发力不足',
+    动作连贯性: followFrames > 20 ? '完整' : '动作过早中断',
+    _detail: {
+      max_backswing_angle: Math.round(maxBack*10)/10,
+      impact_velocity: Math.round(impact.vel*100)/100,
+      impact_frame: impact.idx,
+      follow_through_frames: followFrames,
+      total_frames: framesData.length
+    }
+  }
+}
+
+function drawSkeleton(ctx, kp, pts, color){
+  const {s,e,w} = pts
+  const p = (idx) => ({ x: kp[idx].x, y: kp[idx].y, score: kp[idx].score })
+  const ps = p(s), pe = p(e), pw = p(w)
+  ctx.lineWidth = 3
+  if (ps.score > 0.3 && pe.score > 0.3){
+    ctx.strokeStyle = color; ctx.beginPath()
+    ctx.moveTo(ps.x, ps.y); ctx.lineTo(pe.x, pe.y); ctx.stroke()
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(ps.x, ps.y, 5, 0, Math.PI*2); ctx.fill()
+  }
+  if (pe.score > 0.3 && pw.score > 0.3){
+    ctx.strokeStyle = color; ctx.beginPath()
+    ctx.moveTo(pe.x, pe.y); ctx.lineTo(pw.x, pw.y); ctx.stroke()
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(pe.x, pe.y, 5, 0, Math.PI*2); ctx.fill()
+    ctx.beginPath(); ctx.arc(pw.x, pw.y, 5, 0, Math.PI*2); ctx.fill()
+  }
+}
+
+function generateCSV(framesData, smoothedWy, phases){
+  let csv = 'frame,shoulder_x,shoulder_y,elbow_x,elbow_y,wrist_x,wrist_y,elbow_angle,phase,smoothed_wrist_y\n'
+  framesData.forEach((f,i) => {
+    csv += `${f.frame},${f.shoulder_x.toFixed(1)},${f.shoulder_y.toFixed(1)},${f.elbow_x.toFixed(1)},${f.elbow_y.toFixed(1)},${f.wrist_x.toFixed(1)},${f.wrist_y.toFixed(1)},${f.angle.toFixed(1)},${phases[i] || 'unknown'},${smoothedWy[i]?.toFixed(2) || '0'}\n`
+  })
+  return csv
+}
+
+async function processVideo(file){
+  framesData = []
+  const video = $('previewVideo')
+  const canvas = $('outputCanvas')
+  const ctx = canvas.getContext('2d')
+  video.src = URL.createObjectURL(file)
+  video.classList.remove('hidden'); canvas.classList.remove('hidden')
+  await new Promise(r => { video.onloadedmetadata = r })
+  video.pause()
+
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight
+  const indices = getIndices()
+  const {s,e,w} = indices
+
+  // Setup MediaRecorder for output
+  const stream = canvas.captureStream(30)
+  recordedChunks = []
+  try {
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' })
+  } catch(_){
+    try { mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' }) }
+    catch(_){ mediaRecorder = new MediaRecorder(stream) }
+  }
+  mediaRecorder.ondataavailable = e => { if(e.data.size) recordedChunks.push(e.data) }
+  mediaRecorder.start()
+
+  video.currentTime = 0
+  const fps = 30, interval = 1/fps
+  let currentTime = 0, frameNum = 0
+  const totalFrames = Math.floor(video.duration * fps)
+
+  log(`视频: ${video.videoWidth}x${video.videoHeight}, ${video.duration.toFixed(1)}s, ~${totalFrames}帧`)
+
+  while (currentTime < video.duration){
+    video.currentTime = currentTime
+    await new Promise(r => { video.onseeked = r })
+    if (video.readyState < 2) { currentTime += interval; continue }
+
+    ctx.drawImage(video, 0, 0)
+    frameNum++
+
+    const poses = await detector.estimatePoses(video)
+    if (poses.length > 0 && poses[0].keypoints.length > 10){
+      const kp = poses[0].keypoints
+      const shoulder = kp[s], elbow = kp[e], wristK = kp[w]
+
+      if (shoulder.score > 0.3 && elbow.score > 0.3 && wristK.score > 0.3){
+        const angle = calcAngle(shoulder, elbow, wristK)
+        const inSwing = angle >= SWING_MIN && angle <= SWING_MAX
+        const color = inSwing ? '#00ff00' : '#888888'
+
+        drawSkeleton(ctx, kp, {s,e,w}, color)
+
+        // Angle text
+        ctx.font = '18px monospace'; ctx.fillStyle = inSwing ? '#00ff00' : '#cccccc'
+        ctx.fillText(`${isLeftHanded?'L':'R'}肘角: ${angle.toFixed(1)}°`, elbow.x + 20, elbow.y - 10)
+
+        if (inSwing){
+          ctx.font = 'bold 28px sans-serif'; ctx.fillStyle = '#00ff00'
+          ctx.fillText('SWING!', 40, 50)
+        }
+
+        framesData.push({
+          frame: frameNum,
+          shoulder_x: shoulder.x, shoulder_y: shoulder.y,
+          elbow_x: elbow.x, elbow_y: elbow.y,
+          wrist_x: wristK.x, wrist_y: wristK.y,
+          angle: angle
+        })
+
+        if (frameNum % 10 === 0){
+          $(inSwing ? 'swingVal' : 'angleVal').textContent = inSwing ? 'SWING!' : `${angle.toFixed(0)}°`
+        }
+      }
+    }
+
+    if (frameNum % Math.max(1,Math.floor(totalFrames/10)) === 0){
+      $('status').textContent = `处理中... ${Math.round(currentTime/video.duration*100)}%`
+    }
+    currentTime += interval
+  }
+
+  mediaRecorder.stop()
+  await new Promise(r => { mediaRecorder.onstop = r })
+
+  log(`✅ 处理完成: ${framesData.length} 帧有效数据`)
+
+  // Generate report
+  const report = generateReport()
+  if (report){
+    $('reportArea').classList.remove('hidden')
+    $('rBackswing').textContent = report.蓄力评估
+    $('rImpact').textContent = report.击球爆发力
+    $('rMotion').textContent = report.动作连贯性
+    // Color badges
+    const green = v => ['优秀','高','完整'].includes(v)
+    ;['rBackswing','rImpact','rMotion'].forEach(id => {
+      $(id).style.color = green($(id).textContent) ? '#4ade80' : '#fb923c'
+    })
+    log(`\n挥拍分析报告\n  蓄力: ${report.蓄力评估}\n  爆发力: ${report.击球爆发力}\n  连贯性: ${report.动作连贯性}\n  最大蓄力角度: ${report._detail.max_backswing_angle}°`)
+  }
+
+  // Download button
+  $('downloadBtn').classList.remove('hidden')
+  $('downloadBtn').onclick = () => {
+    const blob = new Blob(recordedChunks, { type: 'video/webm' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = 'analyzed_swing.webm'; a.click()
+    URL.revokeObjectURL(url)
+  }
+  $('downloadBtn').textContent = '⬇️ 下载标记视频'
+
+  $('status').textContent = '✅ 分析完成'
+}
+
+// Event listeners
+document.getElementById('dropZone').onclick = () => document.getElementById('fileInput').click()
+document.getElementById('dropZone').ondragover = e => { e.preventDefault(); e.target.style.borderColor = '#38bdf8' }
+document.getElementById('dropZone').ondragleave = e => { e.target.style.borderColor = '#475569' }
+document.getElementById('dropZone').ondrop = e => {
+  e.preventDefault()
+  const file = e.dataTransfer.files[0]
+  if (file && file.type.startsWith('video/')) handleFile(file)
+}
+
+document.getElementById('fileInput').onchange = e => {
+  if (e.target.files[0]) handleFile(e.target.files[0])
+}
+
+function handleFile(file){
+  $('previewVideo').src = URL.createObjectURL(file)
+  $('previewVideo').classList.remove('hidden')
+  $('analyzeBtn').disabled = false
+  $('status').textContent = `已选择: ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)`
+}
+
+document.getElementById('analyzeBtn').onclick = async () => {
+  isLeftHanded = document.querySelector('input[name="hand"]:checked').value === '1'
+  $('analyzeBtn').disabled = true
+  $('status').innerHTML = '<span class="spinner"></span>正在分析...'
+  $('log').textContent = ''
+  log(`持拍手: ${isLeftHanded?'左手':'右手'} | MoveNet 姿态估计`)
+  try {
+    await processVideo(document.getElementById('fileInput').files[0])
+  } catch(e){
+    log(`❌ 错误: ${e.message}`)
+    console.error(e)
+  }
+  $('analyzeBtn').disabled = false
+}
+
+// Init
+loadDetector()
+</script>
+</body>
+</html>
